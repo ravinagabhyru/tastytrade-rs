@@ -1,4 +1,4 @@
-#![feature(async_iterator)]
+// #![feature(async_iterator)]
 
 pub mod api;
 pub mod client;
