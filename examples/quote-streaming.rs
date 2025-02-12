@@ -1,28 +1,13 @@
 use tastytrade_rs::dxfeed;
 use tastytrade_rs::TastyTrade;
-use rpassword::read_password;
 use std::process;
 use dxfeed::EventData::Quote;
 
 #[tokio::main]
 async fn main() {
     let mut args = std::env::args().skip(1);
-    let username = match args.next() {
-        Some(u) => u,
-        None => {
-            eprintln!("Username not provided");
-            process::exit(1);
-        }
-    };
-
-    println!("Enter password: ");
-    let password = match read_password() {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("Failed to read password: {}", e);
-            process::exit(1);
-        }
-    };
+    let username = args.next().unwrap();
+    let password = args.next().unwrap();
 
     let tasty = match TastyTrade::login(&username, &password, false).await {
         Ok(t) => t,
