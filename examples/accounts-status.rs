@@ -6,8 +6,17 @@ async fn main() {
     let mut args = std::env::args().skip(1);
     let username = args.next().unwrap();
     let password = args.next().unwrap();
+    let live = args.next().unwrap();
 
-    let tasty = match TastyTrade::login_demo(&username, &password, false).await {
+    let live = if live == "live" { true } else { false };
+
+    let login_result = if live {
+        TastyTrade::login(&username, &password, false).await
+    } else {
+        TastyTrade::login_demo(&username, &password, false).await
+    };
+
+    let tasty = match login_result {
         Ok(t) => t,
         Err(e) => {
             eprintln!("Login failed: {}", e);
@@ -22,6 +31,8 @@ async fn main() {
             process::exit(1);
         }
     };
+
+    println!("Number of Accounts: {}", accounts.len());
 
     for account in accounts {
         println!("Account: {}", account.number().0);
