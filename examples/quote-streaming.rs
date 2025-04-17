@@ -1,7 +1,5 @@
-use tastytrade_rs::dxfeed;
 use tastytrade_rs::TastyTrade;
 use std::process;
-use dxfeed::EventData::Quote;
 
 #[tokio::main]
 async fn main() {
@@ -17,22 +15,46 @@ async fn main() {
         }
     };
 
-    let streamer = match tasty.create_quote_streamer().await {
+    let mut streamer = match tasty.create_dxlink_quote_streamer().await {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("Failed to create quote streamer: {}", e);
+            eprintln!("Failed to create dxLink quote streamer: {}", e);
             process::exit(1);
         }
     };
 
-    if let Err(e) = streamer.with_subscriber(&["SPX"]).await {
+    // Initialize the receiver
+    streamer.initialize_receiver();
+
+    let symbols_to_subscribe = &["SPX"];
+    if let Err(e) = streamer.subscribe_quotes(symbols_to_subscribe).await {
         eprintln!("Failed to subscribe to quotes: {}", e);
         process::exit(1);
     }
+    println!("Subscribed to: {:?}", symbols_to_subscribe);
 
-    while let Ok(ev) = streamer.get_event().await {
-        if let Quote(data) = ev.data {
-            println!("{}: {}/{}", ev.sym, data.bid_price, data.ask_price);
+    loop {
+        match streamer.receive_event().await {
+            Ok(Some(ev)) => {
+                if ev.event_type == "Quote" {
+                    println!(
+                        "{}: Bid={:.2}, Ask={:.2} (Size: {}x{}) Time: {:?}",
+                        ev.data.symbol,
+                        ev.data.bid_price.unwrap_or(f64::NAN),
+                        ev.data.ask_price.unwrap_or(f64::NAN),
+                        ev.data.bid_size.unwrap_or(f64::NAN),
+                        ev.data.ask_size.unwrap_or(f64::NAN),
+                        ev.data.event_time
+                    );
+                }
+            }
+            Ok(None) => {
+                // Ignored event type, continue
+            }
+            Err(e) => {
+                eprintln!("Error receiving quote event: {}", e);
+                break;
+            }
         }
     }
 }

@@ -27,6 +27,7 @@ tokio-tungstenite = { version = "0.19.0", features = ["native-tls"] }
 tokio = { version = "1.28.1", features = ["full"] }
 futures-util = "0.3.28"
 erased-serde = "0.3.25"
-# dxfeed = "0.2.3"
+dxlink-rs = { path = "../../dxlink-rs" }
 chrono = { version = "0.4.31", features = ["serde"] }
 serde_with = "3.4.0"
+log = "0.4.20"
