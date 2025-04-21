@@ -1,5 +1,5 @@
 use thiserror::Error;
-use dxlink_rs::Error as DxLinkError;
+use dxlink_rs::DxLinkError;
 
 /// Errors that can occur during quote streaming operations
 #[derive(Debug, Error)]
@@ -47,4 +47,4 @@ impl From<QuoteStreamingError> for crate::api::base::TastyError {
             errors: None,
         })
     }
-} 
+}

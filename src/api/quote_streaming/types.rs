@@ -1,5 +1,24 @@
 use serde::{Deserialize, Serialize};
 
+/// Response from the /api-quote-tokens endpoint
+#[derive(Debug, Deserialize)]
+pub struct ApiQuoteTokens {
+    pub data: ApiQuoteTokensData,
+    pub context: String,
+}
+
+/// Data nested within the ApiQuoteTokens response
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct ApiQuoteTokensData {
+    /// Authentication token for the quote streamer
+    pub token: String,
+    /// URL for the quote streamer service, renamed from "dxlink-url" in the API
+    pub dxlink_url: String,
+    /// Service level/plan of the quote streamer
+    pub level: String,
+}
+
 /// Tokens required for establishing a quote streaming connection
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -38,4 +57,7 @@ pub struct StreamerEvent {
     pub event_type: String,
     /// The actual data associated with the event
     pub data: QuoteData,
-} 
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DxFeedSymbol(pub String);

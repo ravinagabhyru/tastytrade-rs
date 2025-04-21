@@ -15,9 +15,9 @@
 //!     let tasty = TastyTrade::login("username", "password", false).await?;
 //!     let mut streamer = tasty.create_dxlink_quote_streamer().await?;
 //!     streamer.initialize_receiver();
-//!     
+//!
 //!     streamer.subscribe_quotes(&["AAPL", "SPY"]).await?;
-//!     
+//!
 //!     while let Some(event) = streamer.receive_event().await? {
 //!         println!("Received quote: {:?}", event);
 //!     }
@@ -29,5 +29,5 @@ mod types;
 mod dxlink;
 
 pub use error::QuoteStreamingError;
-pub use types::{QuoteData, StreamerEvent, QuoteStreamerTokens};
-pub use dxlink::DxLinkQuoteStreamer; 
+pub use types::{QuoteData, StreamerEvent, QuoteStreamerTokens, DxFeedSymbol};
+pub use dxlink::DxLinkQuoteStreamer;

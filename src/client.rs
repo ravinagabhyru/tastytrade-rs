@@ -157,6 +157,53 @@ impl TastyTrade {
     }
 
     pub async fn get<T: DeserializeOwned, U: AsRef<str>>(&self, url: U) -> Result<T> {
+        // Special case for debugging quote-token API calls
+        if url.as_ref() == "/api-quote-tokens" {
+            let url_full = format!("{}{}", self.base_url, url.as_ref());
+            println!("DEBUG: Fetching from URL: {}", url_full);
+            
+            let response = match self.client.get(&url_full).send().await {
+                Ok(resp) => resp,
+                Err(e) => {
+                    println!("DEBUG: Request error: {}", e);
+                    return Err(e.into());
+                }
+            };
+            
+            println!("DEBUG: Response status: {}", response.status());
+            
+            // Get response body as text
+            let body = match response.text().await {
+                Ok(text) => {
+                    println!("DEBUG: Raw response body: {}", text);
+                    text
+                },
+                Err(e) => {
+                    println!("DEBUG: Failed to get response text: {}", e);
+                    return Err(e.into());
+                }
+            };
+            
+            // Try using a different direct approach with serde_json::Value first
+            let json_value: serde_json::Value = match serde_json::from_str(&body) {
+                Ok(val) => val,
+                Err(e) => {
+                    println!("DEBUG: JSON parse error: {}", e);
+                    return Err(e.into());
+                }
+            };
+            
+            // Now try to deserialize from the parsed Value
+            match serde_json::from_value::<T>(json_value) {
+                Ok(data) => return Ok(data),
+                Err(e) => {
+                    println!("DEBUG: Final deserialization error: {}", e);
+                    return Err(e.into());
+                }
+            }
+        }
+        
+        // Normal case
         self.get_with_query(url, &[]).await
     }
 
