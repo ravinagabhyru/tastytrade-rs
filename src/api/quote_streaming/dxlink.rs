@@ -7,13 +7,14 @@ use dxlink_rs::core::auth::DxLinkAuthState;
 use dxlink_rs::core::client::DxLinkConnectionState;
 use dxlink_rs::websocket_client::{DxLinkWebSocketClient, DxLinkWebSocketClientConfig};
 use dxlink_rs::feed::{Feed, FeedContract};
-use log::{info, warn, error, debug};
+use tracing::{debug, error, info, warn};
 
+use crate::api::quote_streaming::ApiQuoteTokensData;
 use crate::Result;
 use crate::TastyTrade;
 use crate::api::base::TastyError;
 use super::error::QuoteStreamingError;
-use super::types::{ApiQuoteTokens, QuoteData, StreamerEvent};
+use super::types::{QuoteData, StreamerEvent};
 
 /// A quote streamer implementation using DxLink
 ///
@@ -140,11 +141,11 @@ impl TastyTrade {
 
         // Fetch tokens
         info!("Fetching API quote tokens");
-        let tokens = match self.get::<ApiQuoteTokens, _>("/api-quote-tokens").await {
+        let tokens = match self.get::<ApiQuoteTokensData, _>("/api-quote-tokens").await {
             Ok(t) => {
                 info!("Successfully fetched API quote tokens");
-                debug!("Using dxLink URL: {}", t.data.dxlink_url);
-                debug!("Token length: {}", t.data.token.len());
+                debug!("Using dxLink URL: {}", t.dxlink_url);
+                debug!("Token length: {}", t.token.len());
                 t
             },
             Err(e) => {
@@ -180,7 +181,7 @@ impl TastyTrade {
 
         // Set auth token and connect
         info!("Setting auth token");
-        match client_arc_mutex.lock().await.set_auth_token(tokens.data.token.clone()).await {
+        match client_arc_mutex.lock().await.set_auth_token(tokens.token.clone()).await {
             Ok(_) => debug!("Auth token set successfully"),
             Err(e) => {
                 error!("Failed to set auth token: {}", e);
@@ -188,8 +189,8 @@ impl TastyTrade {
             }
         }
 
-        info!("Connecting to WebSocket at URL: {}", tokens.data.dxlink_url);
-        match client_arc_mutex.lock().await.connect(tokens.data.dxlink_url.clone()).await {
+        info!("Connecting to WebSocket at URL: {}", tokens.dxlink_url);
+        match client_arc_mutex.lock().await.connect(tokens.dxlink_url.clone()).await {
             Ok(_) => debug!("WebSocket connect request sent successfully"),
             Err(e) => {
                 error!("Failed to connect to WebSocket: {}", e);
@@ -225,7 +226,7 @@ impl TastyTrade {
 
         if auth_state != DxLinkAuthState::Authorized {
             info!("Not authorized yet, sending auth message");
-            match client_arc_mutex.lock().await.send_auth_message(tokens.data.token.clone()).await {
+            match client_arc_mutex.lock().await.send_auth_message(tokens.token.clone()).await {
                 Ok(_) => debug!("Auth message sent successfully"),
                 Err(e) => {
                     error!("Failed to send auth message: {}", e);

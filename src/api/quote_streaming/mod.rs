@@ -29,5 +29,5 @@ mod types;
 mod dxlink;
 
 pub use error::QuoteStreamingError;
-pub use types::{QuoteData, StreamerEvent, QuoteStreamerTokens, DxFeedSymbol};
+pub use types::{QuoteData, StreamerEvent, QuoteStreamerTokens, ApiQuoteTokens, ApiQuoteTokensData, DxFeedSymbol};
 pub use dxlink::DxLinkQuoteStreamer;
