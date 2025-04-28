@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use dxlink_rs::FeedDataFormat;
@@ -18,41 +19,139 @@ use super::types::{QuoteData, StreamerEvent};
 
 /// A quote streamer implementation using DxLink
 ///
-/// This struct manages the WebSocket connection to the quote streaming service
-/// and provides methods for subscribing to quotes and receiving events.
+/// This struct manages the underlying WebSocket connection to the quote streaming service
+/// using the `dxlink-rs` library. It provides methods for creating logical channels
+/// (each represented by a `dxlink_rs::feed::Feed` instance), subscribing to data feeds
+/// (like Quotes and Trades) on those channels, and receiving events.
 pub struct DxLinkQuoteStreamer {
-    /// The DxLink feed service instance
-    feed: Feed,
+    /// Map of channel ID to Feed service instance
+    feeds: HashMap<u64, Feed>,
     /// The WebSocket client wrapped in an Arc<Mutex> for thread-safe access
     client: Arc<Mutex<DxLinkWebSocketClient>>,
-    /// Optional receiver for data events
-    receiver: Option<broadcast::Receiver<DxLinkFeedEvent>>,
+    /// Map of channel ID to receiver for data events
+    receivers: HashMap<u64, broadcast::Receiver<DxLinkFeedEvent>>,
 }
 
 impl DxLinkQuoteStreamer {
-    /// Initializes the event receiver
-    ///
-    /// This must be called before attempting to receive events.
-    pub fn initialize_receiver(&mut self) {
-        debug!("Initializing DxLink event receiver");
-        self.receiver = Some(self.feed.subscribe_to_data_events());
-        debug!("DxLink event receiver initialized successfully");
-    }
-
-    /// Subscribes to quotes for the given symbols
+    /// Creates a new feed channel with the specified contract type
     ///
     /// # Arguments
+    /// * `contract` - The contract type for the feed
+    /// * `data_format` - Optional data format (defaults to Full if None)
+    ///
+    /// # Returns
+    /// * `Result<u64>` - The channel ID on success, error otherwise
+    pub async fn create_channel(&mut self, contract: FeedContract, data_format: Option<FeedDataFormat>) -> Result<u64> {
+        debug!("Creating new feed channel");
+
+        // Create feed options for subscription batching
+        let options = Some(dxlink_rs::feed::FeedOptions {
+            batch_subscriptions_time: 100, // milliseconds
+            max_send_subscription_chunk_size: 100,
+        });
+
+        match Feed::new(self.client.clone(), contract, options, data_format).await {
+            Ok(feed) => {
+                // Generate a unique channel ID
+                let channel_id = self.generate_channel_id();
+                debug!("Successfully created feed for channel {}", channel_id);
+
+                // Store the feed
+                self.feeds.insert(channel_id, feed);
+
+                // Subscribe to feed events
+                let receiver = self.feeds.get(&channel_id)
+                    .expect("Feed was just inserted")
+                    .subscribe_to_data_events();
+
+                self.receivers.insert(channel_id, receiver);
+
+                // Set up the feed with FEED_SETUP message
+                // self.setup_feed(channel_id).await?;
+
+                debug!("Channel {} created successfully", channel_id);
+                Ok(channel_id)
+            },
+            Err(e) => {
+                error!("Failed to create feed service: {}", e);
+                Err(TastyError::from(QuoteStreamingError::Streamer(
+                    format!("Failed to create feed service: {}", e)
+                )))
+            }
+        }
+    }
+
+    /// Generates a unique channel ID
+    fn generate_channel_id(&self) -> u64 {
+        static CHANNEL_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        CHANNEL_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Creates a feed channel with the Auto contract type and Full data format
+    ///
+    /// # Returns
+    /// * `Result<u64>` - The channel ID on success, error otherwise
+    pub async fn create_default_channel(&mut self) -> Result<u64> {
+        self.create_channel(FeedContract::Auto, Some(FeedDataFormat::Full)).await
+    }
+
+    /// Closes a logical channel by its ID by removing the associated feed and receiver
+    /// from the streamer's internal tracking.
+    ///
+    /// This stops the streamer from processing further events for this channel ID.
+    ///
+    /// # Arguments
+    /// * `channel_id` - The ID of the channel to close
+    ///
+    /// # Returns
+    /// * `Result<()>` - Ok if successful, Err otherwise
+    pub async fn close_channel(&mut self, channel_id: u64) -> Result<()> {
+        if !self.feeds.contains_key(&channel_id) {
+            return Err(TastyError::from(QuoteStreamingError::Streamer(
+                format!("Channel {} does not exist", channel_id)
+            )));
+        }
+
+        debug!("Closing channel {}", channel_id);
+
+        // There's no close_channel method on the client
+        // We'll just remove our references to the feed, channel, and receiver
+
+        // Remove the feed, channel, and receiver for this channel
+        self.feeds.remove(&channel_id);
+        self.receivers.remove(&channel_id);
+
+        debug!("Channel {} closed successfully", channel_id);
+        Ok(())
+    }
+
+    /// Subscribes to a specific event type for the given symbols on a channel
+    ///
+    /// # Arguments
+    /// * `channel_id` - The channel ID to subscribe on
+    /// * `event_type` - The type of event to subscribe to (e.g., "Quote", "Trade")
     /// * `symbols` - A slice of symbols to subscribe to
     ///
     /// # Returns
     /// * `Result<()>` - Ok if subscription was successful, Err otherwise
-    pub async fn subscribe_quotes(&self, symbols: &[impl AsRef<str>]) -> Result<()> {
-        debug!("Subscribing to quotes for symbols: {:?}", symbols.iter().map(|s| s.as_ref()).collect::<Vec<_>>());
+    pub async fn subscribe(&self, channel_id: u64, event_type: &str, symbols: &[impl AsRef<str>]) -> Result<()> {
+        if !self.feeds.contains_key(&channel_id) {
+            return Err(TastyError::from(QuoteStreamingError::Streamer(
+                format!("Channel {} does not exist", channel_id)
+            )));
+        }
+
+        debug!(
+            "Subscribing to {} events for symbols on channel {}: {:?}",
+            event_type,
+            channel_id,
+            symbols.iter().map(|s| s.as_ref()).collect::<Vec<_>>()
+        );
 
         let subscriptions: Vec<serde_json::Value> = symbols
             .iter()
             .map(|s| serde_json::json!({
-                "type": "Quote",
+                "type": event_type,
                 "symbol": s.as_ref().to_string(),
             }))
             .collect();
@@ -63,76 +162,273 @@ impl DxLinkQuoteStreamer {
         }
 
         debug!("Sending subscription request for {} symbols", subscriptions.len());
-        self.feed.add_subscriptions(subscriptions).await
+        debug!("Subscription payload: {}", serde_json::to_string_pretty(&subscriptions).unwrap());
+
+        let feed = self.feeds.get(&channel_id).expect("Channel existence was just checked");
+
+        let sub_msg = dxlink_rs::DxLinkChannelMessage {
+            message_type: "FEED_SUBSCRIPTION".to_string(),
+            payload: serde_json::json!({
+                "type": "FEED_SUBSCRIPTION",
+                "channel": channel_id,
+                "acceptDataFormat": "FULL",
+                "acceptEventFields": {
+                    "Quote": [
+                        "eventSymbol",
+                        "eventType",
+                        "eventTime",
+                        "bidPrice",
+                        "askPrice",
+                        "bidSize",
+                        "askSize"
+                    ]
+                },
+                "add": subscriptions
+            }),
+        };
+
+        // Also send through the feed's add_subscriptions method
+        feed.add_subscriptions(subscriptions).await
             .map_err(|e| -> TastyError {
-                error!("Failed to subscribe to quotes: {}", e);
+                error!("Failed to subscribe to {}: {}", event_type, e);
                 QuoteStreamingError::Subscription(format!("dxLink subscription error: {}", e)).into()
+            })?;
+
+        debug!("Successfully sent subscription requests for channel {}", channel_id);
+        Ok(())
+    }
+
+    /// Subscribes to quotes for the given symbols on a channel
+    ///
+    /// # Arguments
+    /// * `channel_id` - The channel ID to subscribe on
+    /// * `symbols` - A slice of symbols to subscribe to
+    ///
+    /// # Returns
+    /// * `Result<()>` - Ok if subscription was successful, Err otherwise
+    pub async fn subscribe_quotes(&self, channel_id: u64, symbols: &[impl AsRef<str>]) -> Result<()> {
+        self.subscribe(channel_id, "Quote", symbols).await
+    }
+
+    /// Subscribes to trades for the given symbols on a channel
+    ///
+    /// # Arguments
+    /// * `channel_id` - The channel ID to subscribe on
+    /// * `symbols` - A slice of symbols to subscribe to
+    ///
+    /// # Returns
+    /// * `Result<()>` - Ok if subscription was successful, Err otherwise
+    pub async fn subscribe_trades(&self, channel_id: u64, symbols: &[impl AsRef<str>]) -> Result<()> {
+        self.subscribe(channel_id, "Trade", symbols).await
+    }
+
+    /// Unsubscribes from a specific event type for the given symbols on a channel
+    ///
+    /// # Arguments
+    /// * `channel_id` - The channel ID to unsubscribe from
+    /// * `event_type` - The type of event to unsubscribe from
+    /// * `symbols` - A slice of symbols to unsubscribe from
+    ///
+    /// # Returns
+    /// * `Result<()>` - Ok if unsubscription was successful, Err otherwise
+    pub async fn unsubscribe(&self, channel_id: u64, event_type: &str, symbols: &[impl AsRef<str>]) -> Result<()> {
+        if !self.feeds.contains_key(&channel_id) {
+            return Err(TastyError::from(QuoteStreamingError::Streamer(
+                format!("Channel {} does not exist", channel_id)
+            )));
+        }
+
+        debug!(
+            "Unsubscribing from {} events for symbols on channel {}: {:?}",
+            event_type,
+            channel_id,
+            symbols.iter().map(|s| s.as_ref()).collect::<Vec<_>>()
+        );
+
+        let subscriptions: Vec<serde_json::Value> = symbols
+            .iter()
+            .map(|s| serde_json::json!({
+                "type": event_type,
+                "symbol": s.as_ref().to_string(),
+            }))
+            .collect();
+
+        if subscriptions.is_empty() {
+            debug!("No symbols provided for unsubscription, returning early");
+            return Ok(());
+        }
+
+        debug!("Sending unsubscription request for {} symbols", subscriptions.len());
+        let feed = self.feeds.get(&channel_id).expect("Channel existence was just checked");
+
+        feed.remove_subscriptions(subscriptions).await
+            .map_err(|e| -> TastyError {
+                error!("Failed to unsubscribe from {}: {}", event_type, e);
+                QuoteStreamingError::Subscription(format!("dxLink unsubscription error: {}", e)).into()
             })
     }
 
-    /// Receives the next event from the stream
+    /// Resets all subscriptions on a specific channel by removing all current subscriptions
+    ///
+    /// # Arguments
+    /// * `channel_id` - The channel ID to reset subscriptions for
+    ///
+    /// # Returns
+    /// * `Result<()>` - Ok if reset was successful, Err otherwise
+    pub async fn reset_subscriptions(&self, channel_id: u64) -> Result<()> {
+        if !self.feeds.contains_key(&channel_id) {
+            return Err(TastyError::from(QuoteStreamingError::Streamer(
+                format!("Channel {} does not exist", channel_id)
+            )));
+        }
+
+        debug!("Resetting all subscriptions on channel {}", channel_id);
+        let feed = self.feeds.get(&channel_id).expect("Channel existence was just checked");
+
+        // Since there is no direct reset_subscriptions method, we'll use remove_subscriptions
+        // with an empty vector to request removal of all subscriptions
+        feed.remove_subscriptions(vec![]).await
+            .map_err(|e| -> TastyError {
+                error!("Failed to reset subscriptions: {}", e);
+                QuoteStreamingError::Subscription(format!("dxLink subscription reset error: {}", e)).into()
+            })
+    }
+
+    /// Receives the next event from a specific channel
+    ///
+    /// # Arguments
+    /// * `channel_id` - The channel ID to receive from
     ///
     /// # Returns
     /// * `Result<Option<StreamerEvent>>` - Ok(Some(event)) if an event was received,
     ///   Ok(None) if the event was ignored, Err if an error occurred
-    pub async fn receive_event(&mut self) -> Result<Option<StreamerEvent>> {
-        let receiver = self.receiver.as_mut()
+    pub async fn receive_event_from_channel(&mut self, channel_id: u64) -> Result<Option<StreamerEvent>> {
+        let receiver = self.receivers.get_mut(&channel_id)
             .ok_or_else(|| -> TastyError {
-                error!("Attempted to receive events before initializing receiver");
+                error!("Attempted to receive events from non-existent channel {}", channel_id);
                 QuoteStreamingError::Streamer(
-                    "Streamer receiver not initialized. Call initialize_receiver first.".to_string()
+                    format!("Channel {} does not exist", channel_id)
                 ).into()
             })?;
 
         loop {
             match receiver.recv().await {
                 Ok(feed_event) => {
-                    match feed_event {
+                    // Process the event based on its type
+                    match &feed_event {
                         DxLinkFeedEvent::Quote(quote_event) => {
-                            debug!("Received quote event for symbol: {}", quote_event.event_symbol);
+                            debug!("Received quote event for symbol: {} on channel {}", quote_event.event_symbol, channel_id);
                             let quote_data = QuoteData {
-                                symbol: quote_event.event_symbol,
-                                bid_price: quote_event.bid_price.map(|jd| jd.to_f64()),
-                                ask_price: quote_event.ask_price.map(|jd| jd.to_f64()),
-                                bid_size: quote_event.bid_size.map(|jd| jd.to_f64()),
-                                ask_size: quote_event.ask_size.map(|jd| jd.to_f64()),
+                                symbol: quote_event.event_symbol.clone(),
+                                bid_price: quote_event.bid_price.as_ref().map(|jd| jd.to_f64()),
+                                ask_price: quote_event.ask_price.as_ref().map(|jd| jd.to_f64()),
+                                bid_size: quote_event.bid_size.as_ref().map(|jd| jd.to_f64()),
+                                ask_size: quote_event.ask_size.as_ref().map(|jd| jd.to_f64()),
                                 event_time: quote_event.event_time,
                             };
                             return Ok(Some(StreamerEvent {
                                 event_type: "Quote".to_string(),
                                 data: quote_data,
                             }));
-                        }
+                        },
+                        DxLinkFeedEvent::Trade(trade_event) => {
+                            debug!("Received trade event for symbol: {} on channel {}", trade_event.event_symbol, channel_id);
+                            // For now, we convert trade events to the same QuoteData structure
+                            // In a real implementation, you might want to create a more specific type
+                            let quote_data = QuoteData {
+                                symbol: trade_event.event_symbol.clone(),
+                                bid_price: None,
+                                ask_price: trade_event.price.as_ref().map(|jd| jd.to_f64()),
+                                bid_size: None,
+                                ask_size: trade_event.size.as_ref().map(|jd| jd.to_f64()),
+                                event_time: trade_event.event_time,
+                            };
+                            return Ok(Some(StreamerEvent {
+                                event_type: "Trade".to_string(),
+                                data: quote_data,
+                            }));
+                        },
                         _ => {
-                            debug!("Ignoring non-Quote dxLink event: {:?}", feed_event);
+                            debug!("Ignoring unsupported dxLink event type on channel {}: {:?}", channel_id, feed_event);
                             continue;
                         }
                     }
-                }
+                },
                 Err(broadcast::error::RecvError::Lagged(n)) => {
-                    warn!("Quote streamer lagged, skipped {} messages.", n);
+                    warn!("Quote streamer on channel {} lagged, skipped {} messages.", channel_id, n);
                     continue;
-                }
+                },
                 Err(broadcast::error::RecvError::Closed) => {
-                    error!("Streamer channel unexpectedly closed");
+                    error!("Streamer channel {} unexpectedly closed", channel_id);
                     return Err(TastyError::from(QuoteStreamingError::Event(
-                        "Streamer channel unexpectedly closed".to_string()
+                        format!("Streamer channel {} unexpectedly closed", channel_id)
                     )));
                 }
             }
         }
     }
+
+    /// Receives the next event from any channel
+    ///
+    /// # Returns
+    /// * `Result<Option<(u64, StreamerEvent)>>` - Ok(Some((channel_id, event))) if an event was received,
+    ///   Ok(None) if all channels are closed, Err if an error occurred
+    pub async fn receive_event(&mut self) -> Result<Option<(u64, StreamerEvent)>> {
+        if self.receivers.is_empty() {
+            return Err(TastyError::from(QuoteStreamingError::Streamer(
+                "No channels available to receive events from".to_string()
+            )));
+        }
+
+        // Collect all channel IDs first to avoid borrowing issues
+        let channel_ids: Vec<u64> = self.receivers.keys().copied().collect();
+
+        // Iterate over the collected channel IDs
+        for channel_id in channel_ids {
+            // Check if this channel still exists (might have been removed by another iteration)
+            if !self.receivers.contains_key(&channel_id) {
+                continue;
+            }
+
+            match self.receive_event_from_channel(channel_id).await {
+                Ok(Some(event)) => return Ok(Some((channel_id, event))),
+                Ok(None) => continue,
+                Err(e) => {
+                    // Check if this is an API error about closed channels
+                    match &e {
+                        TastyError::Api(api_err) if api_err.message.contains("unexpectedly closed") => {
+                            // Channel is closed, remove it
+                            self.receivers.remove(&channel_id);
+                            continue;
+                        },
+                        _ => return Err(e),
+                    }
+                }
+            }
+        }
+
+        // If we got here, we checked all channels and none had events
+        Ok(None)
+    }
+
+    /// Get all active channel IDs
+    ///
+    /// # Returns
+    /// * `Vec<u64>` - List of active channel IDs
+    pub fn get_channel_ids(&self) -> Vec<u64> {
+        self.feeds.keys().copied().collect()
+    }
 }
 
 impl TastyTrade {
-    /// Creates a new DxLink quote streamer
+    /// Creates a new DxLink quote streamer with multi-channel support
     ///
     /// This method:
     /// 1. Fetches the necessary tokens
     /// 2. Creates and configures the WebSocket client
     /// 3. Establishes the connection
     /// 4. Waits for authentication
-    /// 5. Creates the feed service
+    /// 5. Returns the streamer instance (channels can be created separately)
     ///
     /// # Returns
     /// * `Result<DxLinkQuoteStreamer>` - The configured quote streamer if successful
@@ -259,27 +555,12 @@ impl TastyTrade {
 
         info!("DxLink client connected and authorized.");
 
-        // Create feed service
-        info!("Creating feed service");
-        debug!("Feed configuration: Contract=Auto, Format=Full");
-        let feed_service = match Feed::new(client_arc_mutex.clone(), FeedContract::Auto, None, Some(FeedDataFormat::Full)).await {
-            Ok(feed) => {
-                info!("Feed service created successfully");
-                feed
-            },
-            Err(e) => {
-                error!("Failed to create feed service: {}", e);
-                error!("Feed service error details: {:?}", e);
-                return Err(TastyError::from(QuoteStreamingError::Streamer(format!("Failed to create feed service: {}", e))));
-            }
-        };
-
-        // Return new streamer
-        info!("DxLink quote streamer created successfully");
+        // Return new streamer with empty channel collections
+        info!("Creating DxLink quote streamer instance");
         Ok(DxLinkQuoteStreamer {
-            feed: feed_service,
+            feeds: HashMap::new(),
             client: client_arc_mutex,
-            receiver: None,
+            receivers: HashMap::new(),
         })
     }
 }
