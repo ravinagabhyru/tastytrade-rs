@@ -166,27 +166,6 @@ impl DxLinkQuoteStreamer {
 
         let feed = self.feeds.get(&channel_id).expect("Channel existence was just checked");
 
-        let sub_msg = dxlink_rs::DxLinkChannelMessage {
-            message_type: "FEED_SUBSCRIPTION".to_string(),
-            payload: serde_json::json!({
-                "type": "FEED_SUBSCRIPTION",
-                "channel": channel_id,
-                "acceptDataFormat": "FULL",
-                "acceptEventFields": {
-                    "Quote": [
-                        "eventSymbol",
-                        "eventType",
-                        "eventTime",
-                        "bidPrice",
-                        "askPrice",
-                        "bidSize",
-                        "askSize"
-                    ]
-                },
-                "add": subscriptions
-            }),
-        };
-
         // Also send through the feed's add_subscriptions method
         feed.add_subscriptions(subscriptions).await
             .map_err(|e| -> TastyError {
