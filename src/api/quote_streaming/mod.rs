@@ -9,18 +9,25 @@
 //! # Example
 //! ```rust,no_run
 //! use tastytrade_rs::TastyTrade;
+//! use dxlink_rs::feed::FeedContract;
 //!
 //! #[tokio::main]
-//! async fn main() {
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let tasty = TastyTrade::login("username", "password", false).await?;
 //!     let mut streamer = tasty.create_dxlink_quote_streamer().await?;
-//!     streamer.initialize_receiver();
+//!     
+//!     // Create a channel for quotes
+//!     let channel_id = streamer.create_channel(FeedContract::Auto, None).await?;
 //!
-//!     streamer.subscribe_quotes(&["AAPL", "SPY"]).await?;
+//!     // Subscribe to quotes on the channel
+//!     streamer.subscribe_quotes(channel_id, &["AAPL", "SPY"]).await?;
 //!
-//!     while let Some(event) = streamer.receive_event().await? {
-//!         println!("Received quote: {:?}", event);
+//!     // Receive events
+//!     while let Ok(Some((ch_id, event))) = streamer.receive_event().await {
+//!         println!("Received quote on channel {}: {:?}", ch_id, event);
 //!     }
+//!     
+//!     Ok(())
 //! }
 //! ```
 
