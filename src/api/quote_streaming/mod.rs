@@ -31,10 +31,12 @@
 //! }
 //! ```
 
+mod dxlink;
 mod error;
 mod types;
-mod dxlink;
 
-pub use error::QuoteStreamingError;
-pub use types::{QuoteData, StreamerEvent, QuoteStreamerTokens, ApiQuoteTokens, ApiQuoteTokensData, DxFeedSymbol};
 pub use dxlink::DxLinkQuoteStreamer;
+pub use error::QuoteStreamingError;
+pub use types::{
+    ApiQuoteTokens, ApiQuoteTokensData, DxFeedSymbol, QuoteData, QuoteStreamerTokens, StreamerEvent,
+};

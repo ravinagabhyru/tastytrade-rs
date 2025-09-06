@@ -144,8 +144,8 @@ impl TastyTrade {
             .send()
             .await?
             // .inspect_json::<TastyApiResponse<T>, TastyError>(move |text| {
-                // println!("{:?}", std::any::type_name::<T>());
-                // println!("{text}");
+            // println!("{:?}", std::any::type_name::<T>());
+            // println!("{text}");
             // })
             .json::<TastyApiResponse<T>>()
             .await?;

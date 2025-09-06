@@ -1,5 +1,5 @@
-use thiserror::Error;
 use dxlink_rs::DxLinkError;
+use thiserror::Error;
 
 /// Errors that can occur during quote streaming operations
 #[derive(Debug, Error)]

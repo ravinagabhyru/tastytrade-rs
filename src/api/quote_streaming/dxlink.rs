@@ -1,21 +1,21 @@
+use dxlink_rs::core::auth::DxLinkAuthState;
+use dxlink_rs::core::client::DxLinkConnectionState;
+use dxlink_rs::feed::events::FeedEvent as DxLinkFeedEvent;
+use dxlink_rs::feed::{Feed, FeedContract};
+use dxlink_rs::websocket_client::{DxLinkWebSocketClient, DxLinkWebSocketClientConfig};
+use dxlink_rs::FeedDataFormat;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use dxlink_rs::FeedDataFormat;
-use tokio::sync::{Mutex, broadcast};
-use dxlink_rs::feed::events::FeedEvent as DxLinkFeedEvent;
-use dxlink_rs::core::auth::DxLinkAuthState;
-use dxlink_rs::core::client::DxLinkConnectionState;
-use dxlink_rs::websocket_client::{DxLinkWebSocketClient, DxLinkWebSocketClientConfig};
-use dxlink_rs::feed::{Feed, FeedContract};
+use tokio::sync::{broadcast, Mutex};
 use tracing::{debug, error, info, warn};
 
+use super::error::QuoteStreamingError;
+use super::types::{QuoteData, StreamerEvent};
+use crate::api::base::TastyError;
 use crate::api::quote_streaming::ApiQuoteTokensData;
 use crate::Result;
 use crate::TastyTrade;
-use crate::api::base::TastyError;
-use super::error::QuoteStreamingError;
-use super::types::{QuoteData, StreamerEvent};
 
 /// A quote streamer implementation using DxLink
 ///
@@ -41,7 +41,11 @@ impl DxLinkQuoteStreamer {
     ///
     /// # Returns
     /// * `Result<u64>` - The channel ID on success, error otherwise
-    pub async fn create_channel(&mut self, contract: FeedContract, data_format: Option<FeedDataFormat>) -> Result<u64> {
+    pub async fn create_channel(
+        &mut self,
+        contract: FeedContract,
+        data_format: Option<FeedDataFormat>,
+    ) -> Result<u64> {
         debug!("Creating new feed channel");
 
         // Create feed options for subscription batching
@@ -60,7 +64,9 @@ impl DxLinkQuoteStreamer {
                 self.feeds.insert(channel_id, feed);
 
                 // Subscribe to feed events
-                let receiver = self.feeds.get(&channel_id)
+                let receiver = self
+                    .feeds
+                    .get(&channel_id)
                     .expect("Feed was just inserted")
                     .subscribe_to_data_events();
 
@@ -71,12 +77,13 @@ impl DxLinkQuoteStreamer {
 
                 debug!("Channel {} created successfully", channel_id);
                 Ok(channel_id)
-            },
+            }
             Err(e) => {
                 error!("Failed to create feed service: {}", e);
-                Err(TastyError::from(QuoteStreamingError::Streamer(
-                    format!("Failed to create feed service: {}", e)
-                )))
+                Err(TastyError::from(QuoteStreamingError::Streamer(format!(
+                    "Failed to create feed service: {}",
+                    e
+                ))))
             }
         }
     }
@@ -92,7 +99,8 @@ impl DxLinkQuoteStreamer {
     /// # Returns
     /// * `Result<u64>` - The channel ID on success, error otherwise
     pub async fn create_default_channel(&mut self) -> Result<u64> {
-        self.create_channel(FeedContract::Auto, Some(FeedDataFormat::Full)).await
+        self.create_channel(FeedContract::Auto, Some(FeedDataFormat::Full))
+            .await
     }
 
     /// Closes a logical channel by its ID by removing the associated feed and receiver
@@ -107,9 +115,10 @@ impl DxLinkQuoteStreamer {
     /// * `Result<()>` - Ok if successful, Err otherwise
     pub async fn close_channel(&mut self, channel_id: u64) -> Result<()> {
         if !self.feeds.contains_key(&channel_id) {
-            return Err(TastyError::from(QuoteStreamingError::Streamer(
-                format!("Channel {} does not exist", channel_id)
-            )));
+            return Err(TastyError::from(QuoteStreamingError::Streamer(format!(
+                "Channel {} does not exist",
+                channel_id
+            ))));
         }
 
         debug!("Closing channel {}", channel_id);
@@ -134,11 +143,17 @@ impl DxLinkQuoteStreamer {
     ///
     /// # Returns
     /// * `Result<()>` - Ok if subscription was successful, Err otherwise
-    pub async fn subscribe(&self, channel_id: u64, event_type: &str, symbols: &[impl AsRef<str>]) -> Result<()> {
+    pub async fn subscribe(
+        &self,
+        channel_id: u64,
+        event_type: &str,
+        symbols: &[impl AsRef<str>],
+    ) -> Result<()> {
         if !self.feeds.contains_key(&channel_id) {
-            return Err(TastyError::from(QuoteStreamingError::Streamer(
-                format!("Channel {} does not exist", channel_id)
-            )));
+            return Err(TastyError::from(QuoteStreamingError::Streamer(format!(
+                "Channel {} does not exist",
+                channel_id
+            ))));
         }
 
         debug!(
@@ -150,10 +165,12 @@ impl DxLinkQuoteStreamer {
 
         let subscriptions: Vec<serde_json::Value> = symbols
             .iter()
-            .map(|s| serde_json::json!({
-                "type": event_type,
-                "symbol": s.as_ref().to_string(),
-            }))
+            .map(|s| {
+                serde_json::json!({
+                    "type": event_type,
+                    "symbol": s.as_ref().to_string(),
+                })
+            })
             .collect();
 
         if subscriptions.is_empty() {
@@ -161,19 +178,33 @@ impl DxLinkQuoteStreamer {
             return Ok(());
         }
 
-        debug!("Sending subscription request for {} symbols", subscriptions.len());
-        debug!("Subscription payload: {}", serde_json::to_string_pretty(&subscriptions).unwrap());
+        debug!(
+            "Sending subscription request for {} symbols",
+            subscriptions.len()
+        );
+        debug!(
+            "Subscription payload: {}",
+            serde_json::to_string_pretty(&subscriptions).unwrap()
+        );
 
-        let feed = self.feeds.get(&channel_id).expect("Channel existence was just checked");
+        let feed = self
+            .feeds
+            .get(&channel_id)
+            .expect("Channel existence was just checked");
 
         // Also send through the feed's add_subscriptions method
-        feed.add_subscriptions(subscriptions).await
+        feed.add_subscriptions(subscriptions)
+            .await
             .map_err(|e| -> TastyError {
                 error!("Failed to subscribe to {}: {}", event_type, e);
-                QuoteStreamingError::Subscription(format!("dxLink subscription error: {}", e)).into()
+                QuoteStreamingError::Subscription(format!("dxLink subscription error: {}", e))
+                    .into()
             })?;
 
-        debug!("Successfully sent subscription requests for channel {}", channel_id);
+        debug!(
+            "Successfully sent subscription requests for channel {}",
+            channel_id
+        );
         Ok(())
     }
 
@@ -185,7 +216,11 @@ impl DxLinkQuoteStreamer {
     ///
     /// # Returns
     /// * `Result<()>` - Ok if subscription was successful, Err otherwise
-    pub async fn subscribe_quotes(&self, channel_id: u64, symbols: &[impl AsRef<str>]) -> Result<()> {
+    pub async fn subscribe_quotes(
+        &self,
+        channel_id: u64,
+        symbols: &[impl AsRef<str>],
+    ) -> Result<()> {
         self.subscribe(channel_id, "Quote", symbols).await
     }
 
@@ -197,7 +232,11 @@ impl DxLinkQuoteStreamer {
     ///
     /// # Returns
     /// * `Result<()>` - Ok if subscription was successful, Err otherwise
-    pub async fn subscribe_trades(&self, channel_id: u64, symbols: &[impl AsRef<str>]) -> Result<()> {
+    pub async fn subscribe_trades(
+        &self,
+        channel_id: u64,
+        symbols: &[impl AsRef<str>],
+    ) -> Result<()> {
         self.subscribe(channel_id, "Trade", symbols).await
     }
 
@@ -210,11 +249,17 @@ impl DxLinkQuoteStreamer {
     ///
     /// # Returns
     /// * `Result<()>` - Ok if unsubscription was successful, Err otherwise
-    pub async fn unsubscribe(&self, channel_id: u64, event_type: &str, symbols: &[impl AsRef<str>]) -> Result<()> {
+    pub async fn unsubscribe(
+        &self,
+        channel_id: u64,
+        event_type: &str,
+        symbols: &[impl AsRef<str>],
+    ) -> Result<()> {
         if !self.feeds.contains_key(&channel_id) {
-            return Err(TastyError::from(QuoteStreamingError::Streamer(
-                format!("Channel {} does not exist", channel_id)
-            )));
+            return Err(TastyError::from(QuoteStreamingError::Streamer(format!(
+                "Channel {} does not exist",
+                channel_id
+            ))));
         }
 
         debug!(
@@ -226,10 +271,12 @@ impl DxLinkQuoteStreamer {
 
         let subscriptions: Vec<serde_json::Value> = symbols
             .iter()
-            .map(|s| serde_json::json!({
-                "type": event_type,
-                "symbol": s.as_ref().to_string(),
-            }))
+            .map(|s| {
+                serde_json::json!({
+                    "type": event_type,
+                    "symbol": s.as_ref().to_string(),
+                })
+            })
             .collect();
 
         if subscriptions.is_empty() {
@@ -237,13 +284,21 @@ impl DxLinkQuoteStreamer {
             return Ok(());
         }
 
-        debug!("Sending unsubscription request for {} symbols", subscriptions.len());
-        let feed = self.feeds.get(&channel_id).expect("Channel existence was just checked");
+        debug!(
+            "Sending unsubscription request for {} symbols",
+            subscriptions.len()
+        );
+        let feed = self
+            .feeds
+            .get(&channel_id)
+            .expect("Channel existence was just checked");
 
-        feed.remove_subscriptions(subscriptions).await
+        feed.remove_subscriptions(subscriptions)
+            .await
             .map_err(|e| -> TastyError {
                 error!("Failed to unsubscribe from {}: {}", event_type, e);
-                QuoteStreamingError::Subscription(format!("dxLink unsubscription error: {}", e)).into()
+                QuoteStreamingError::Subscription(format!("dxLink unsubscription error: {}", e))
+                    .into()
             })
     }
 
@@ -256,20 +311,26 @@ impl DxLinkQuoteStreamer {
     /// * `Result<()>` - Ok if reset was successful, Err otherwise
     pub async fn reset_subscriptions(&self, channel_id: u64) -> Result<()> {
         if !self.feeds.contains_key(&channel_id) {
-            return Err(TastyError::from(QuoteStreamingError::Streamer(
-                format!("Channel {} does not exist", channel_id)
-            )));
+            return Err(TastyError::from(QuoteStreamingError::Streamer(format!(
+                "Channel {} does not exist",
+                channel_id
+            ))));
         }
 
         debug!("Resetting all subscriptions on channel {}", channel_id);
-        let feed = self.feeds.get(&channel_id).expect("Channel existence was just checked");
+        let feed = self
+            .feeds
+            .get(&channel_id)
+            .expect("Channel existence was just checked");
 
         // Since there is no direct reset_subscriptions method, we'll use remove_subscriptions
         // with an empty vector to request removal of all subscriptions
-        feed.remove_subscriptions(vec![]).await
+        feed.remove_subscriptions(vec![])
+            .await
             .map_err(|e| -> TastyError {
                 error!("Failed to reset subscriptions: {}", e);
-                QuoteStreamingError::Subscription(format!("dxLink subscription reset error: {}", e)).into()
+                QuoteStreamingError::Subscription(format!("dxLink subscription reset error: {}", e))
+                    .into()
             })
     }
 
@@ -281,13 +342,20 @@ impl DxLinkQuoteStreamer {
     /// # Returns
     /// * `Result<Option<StreamerEvent>>` - Ok(Some(event)) if an event was received,
     ///   Ok(None) if the event was ignored, Err if an error occurred
-    pub async fn receive_event_from_channel(&mut self, channel_id: u64) -> Result<Option<StreamerEvent>> {
-        let receiver = self.receivers.get_mut(&channel_id)
+    pub async fn receive_event_from_channel(
+        &mut self,
+        channel_id: u64,
+    ) -> Result<Option<StreamerEvent>> {
+        let receiver = self
+            .receivers
+            .get_mut(&channel_id)
             .ok_or_else(|| -> TastyError {
-                error!("Attempted to receive events from non-existent channel {}", channel_id);
-                QuoteStreamingError::Streamer(
-                    format!("Channel {} does not exist", channel_id)
-                ).into()
+                error!(
+                    "Attempted to receive events from non-existent channel {}",
+                    channel_id
+                );
+                QuoteStreamingError::Streamer(format!("Channel {} does not exist", channel_id))
+                    .into()
             })?;
 
         loop {
@@ -296,7 +364,10 @@ impl DxLinkQuoteStreamer {
                     // Process the event based on its type
                     match &feed_event {
                         DxLinkFeedEvent::Quote(quote_event) => {
-                            debug!("Received quote event for symbol: {} on channel {}", quote_event.event_symbol, channel_id);
+                            debug!(
+                                "Received quote event for symbol: {} on channel {}",
+                                quote_event.event_symbol, channel_id
+                            );
                             let quote_data = QuoteData {
                                 symbol: quote_event.event_symbol.clone(),
                                 bid_price: quote_event.bid_price.as_ref().map(|jd| jd.to_f64()),
@@ -309,9 +380,12 @@ impl DxLinkQuoteStreamer {
                                 event_type: "Quote".to_string(),
                                 data: quote_data,
                             }));
-                        },
+                        }
                         DxLinkFeedEvent::Trade(trade_event) => {
-                            debug!("Received trade event for symbol: {} on channel {}", trade_event.event_symbol, channel_id);
+                            debug!(
+                                "Received trade event for symbol: {} on channel {}",
+                                trade_event.event_symbol, channel_id
+                            );
                             // For now, we convert trade events to the same QuoteData structure
                             // In a real implementation, you might want to create a more specific type
                             let quote_data = QuoteData {
@@ -326,22 +400,29 @@ impl DxLinkQuoteStreamer {
                                 event_type: "Trade".to_string(),
                                 data: quote_data,
                             }));
-                        },
+                        }
                         _ => {
-                            debug!("Ignoring unsupported dxLink event type on channel {}: {:?}", channel_id, feed_event);
+                            debug!(
+                                "Ignoring unsupported dxLink event type on channel {}: {:?}",
+                                channel_id, feed_event
+                            );
                             continue;
                         }
                     }
-                },
+                }
                 Err(broadcast::error::RecvError::Lagged(n)) => {
-                    warn!("Quote streamer on channel {} lagged, skipped {} messages.", channel_id, n);
+                    warn!(
+                        "Quote streamer on channel {} lagged, skipped {} messages.",
+                        channel_id, n
+                    );
                     continue;
-                },
+                }
                 Err(broadcast::error::RecvError::Closed) => {
                     error!("Streamer channel {} unexpectedly closed", channel_id);
-                    return Err(TastyError::from(QuoteStreamingError::Event(
-                        format!("Streamer channel {} unexpectedly closed", channel_id)
-                    )));
+                    return Err(TastyError::from(QuoteStreamingError::Event(format!(
+                        "Streamer channel {} unexpectedly closed",
+                        channel_id
+                    ))));
                 }
             }
         }
@@ -355,7 +436,7 @@ impl DxLinkQuoteStreamer {
     pub async fn receive_event(&mut self) -> Result<Option<(u64, StreamerEvent)>> {
         if self.receivers.is_empty() {
             return Err(TastyError::from(QuoteStreamingError::Streamer(
-                "No channels available to receive events from".to_string()
+                "No channels available to receive events from".to_string(),
             )));
         }
 
@@ -375,11 +456,13 @@ impl DxLinkQuoteStreamer {
                 Err(e) => {
                     // Check if this is an API error about closed channels
                     match &e {
-                        TastyError::Api(api_err) if api_err.message.contains("unexpectedly closed") => {
+                        TastyError::Api(api_err)
+                            if api_err.message.contains("unexpectedly closed") =>
+                        {
                             // Channel is closed, remove it
                             self.receivers.remove(&channel_id);
                             continue;
-                        },
+                        }
                         _ => return Err(e),
                     }
                 }
@@ -422,7 +505,7 @@ impl TastyTrade {
                 debug!("Using dxLink URL: {}", t.dxlink_url);
                 debug!("Token length: {}", t.token.len());
                 t
-            },
+            }
             Err(e) => {
                 error!("Failed to fetch API quote tokens: {}", e);
                 error!("Error details: {:?}", e);
@@ -443,33 +526,57 @@ impl TastyTrade {
         info!("Setting up DxLink client state listeners");
         {
             let client_guard = client_arc_mutex.lock().await;
-            let _ = client_guard.add_connection_state_listener(Box::new(|new_state, old_state| {
-                info!("Connection State Change: {:?} -> {:?}", old_state, new_state);
-            })).await;
-            let _ = client_guard.add_auth_state_listener(Box::new(|new_state, old_state| {
-                info!("Auth State Change: {:?} -> {:?}", old_state, new_state);
-            })).await;
-            let _ = client_guard.add_error_listener(Box::new(|error| {
-                error!("dxLink Error: {:?}", error);
-            })).await;
+            let _ = client_guard
+                .add_connection_state_listener(Box::new(|new_state, old_state| {
+                    info!(
+                        "Connection State Change: {:?} -> {:?}",
+                        old_state, new_state
+                    );
+                }))
+                .await;
+            let _ = client_guard
+                .add_auth_state_listener(Box::new(|new_state, old_state| {
+                    info!("Auth State Change: {:?} -> {:?}", old_state, new_state);
+                }))
+                .await;
+            let _ = client_guard
+                .add_error_listener(Box::new(|error| {
+                    error!("dxLink Error: {:?}", error);
+                }))
+                .await;
         }
 
         // Set auth token and connect
         info!("Setting auth token");
-        match client_arc_mutex.lock().await.set_auth_token(tokens.token.clone()).await {
+        match client_arc_mutex
+            .lock()
+            .await
+            .set_auth_token(tokens.token.clone())
+            .await
+        {
             Ok(_) => debug!("Auth token set successfully"),
             Err(e) => {
                 error!("Failed to set auth token: {}", e);
-                return Err(TastyError::from(QuoteStreamingError::Authentication(format!("Failed to set auth token: {}", e))));
+                return Err(TastyError::from(QuoteStreamingError::Authentication(
+                    format!("Failed to set auth token: {}", e),
+                )));
             }
         }
 
         info!("Connecting to WebSocket at URL: {}", tokens.dxlink_url);
-        match client_arc_mutex.lock().await.connect(tokens.dxlink_url.clone()).await {
+        match client_arc_mutex
+            .lock()
+            .await
+            .connect(tokens.dxlink_url.clone())
+            .await
+        {
             Ok(_) => debug!("WebSocket connect request sent successfully"),
             Err(e) => {
                 error!("Failed to connect to WebSocket: {}", e);
-                return Err(TastyError::from(QuoteStreamingError::Connection(format!("Failed to connect: {}", e))));
+                return Err(TastyError::from(QuoteStreamingError::Connection(format!(
+                    "Failed to connect: {}",
+                    e
+                ))));
             }
         }
 
@@ -484,12 +591,14 @@ impl TastyTrade {
                 }
                 tokio::time::sleep(Duration::from_millis(200)).await;
             }
-        }).await {
+        })
+        .await
+        {
             Ok(_) => info!("WebSocket connection established"),
             Err(_) => {
                 error!("Timeout waiting for dxLink connection");
                 return Err(TastyError::from(QuoteStreamingError::Connection(
-                    "Timeout waiting for dxLink connection".to_string()
+                    "Timeout waiting for dxLink connection".to_string(),
                 )));
             }
         }
@@ -501,11 +610,18 @@ impl TastyTrade {
 
         if auth_state != DxLinkAuthState::Authorized {
             info!("Not authorized yet, sending auth message");
-            match client_arc_mutex.lock().await.send_auth_message(tokens.token.clone()).await {
+            match client_arc_mutex
+                .lock()
+                .await
+                .send_auth_message(tokens.token.clone())
+                .await
+            {
                 Ok(_) => debug!("Auth message sent successfully"),
                 Err(e) => {
                     error!("Failed to send auth message: {}", e);
-                    return Err(TastyError::from(QuoteStreamingError::Authentication(format!("Failed to send auth message: {}", e))));
+                    return Err(TastyError::from(QuoteStreamingError::Authentication(
+                        format!("Failed to send auth message: {}", e),
+                    )));
                 }
             }
 
@@ -519,12 +635,14 @@ impl TastyTrade {
                     }
                     tokio::time::sleep(Duration::from_millis(100)).await;
                 }
-            }).await {
+            })
+            .await
+            {
                 Ok(_) => info!("DxLink client authorized successfully"),
                 Err(_) => {
                     error!("Timeout waiting for dxLink authorization");
                     return Err(TastyError::from(QuoteStreamingError::Authentication(
-                        "Timeout waiting for dxLink authorization".to_string()
+                        "Timeout waiting for dxLink authorization".to_string(),
                     )));
                 }
             }

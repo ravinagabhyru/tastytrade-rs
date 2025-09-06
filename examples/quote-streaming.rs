@@ -1,10 +1,10 @@
+use dxlink_rs::feed::FeedContract;
 use std::process;
 use std::time::Duration;
 use tastytrade_rs::TastyTrade;
-use dxlink_rs::feed::FeedContract;
 
-use tracing::{error, info};
 use tokio::time;
+use tracing::{error, info};
 
 #[tokio::main]
 async fn main() {
@@ -77,7 +77,7 @@ async fn main() {
         Ok(id) => {
             info!("Successfully created quote channel with ID: {}", id);
             id
-        },
+        }
         Err(e) => {
             error!("Failed to create quote channel: {}", e);
             process::exit(1);
@@ -98,7 +98,10 @@ async fn main() {
 
     // Subscribe to quotes on channel 1
     let quote_symbols = &["AAPL", "MSFT", "SPX"];
-    if let Err(e) = streamer.subscribe_quotes(quote_channel_id, quote_symbols).await {
+    if let Err(e) = streamer
+        .subscribe_quotes(quote_channel_id, quote_symbols)
+        .await
+    {
         error!("Failed to subscribe to quotes: {}", e);
         process::exit(1);
     }
@@ -117,39 +120,40 @@ async fn main() {
     let mut running = true;
     while running {
         match streamer.receive_event().await {
-            Ok(Some((channel_id, ev))) => {
-                match ev.event_type.as_str() {
-                    "Quote" => {
-                        info!(
-                            "[Channel {}] QUOTE {}: Bid={:.2}, Ask={:.2} (Size: {}x{}) Time: {:?}",
-                            channel_id,
-                            ev.data.symbol,
-                            ev.data.bid_price.unwrap_or(f64::NAN),
-                            ev.data.ask_price.unwrap_or(f64::NAN),
-                            ev.data.bid_size.unwrap_or(f64::NAN),
-                            ev.data.ask_size.unwrap_or(f64::NAN),
-                            ev.data.event_time
-                        );
-                    },
-                    "Trade" => {
-                        info!(
-                            "[Channel {}] TRADE {}: Price={:.2}, Size={} Time: {:?}",
-                            channel_id,
-                            ev.data.symbol,
-                            ev.data.ask_price.unwrap_or(f64::NAN),
-                            ev.data.ask_size.unwrap_or(f64::NAN),
-                            ev.data.event_time
-                        );
-                    },
-                    _ => {
-                        info!("[Channel {}] Unknown event type: {}", channel_id, ev.event_type);
-                    }
+            Ok(Some((channel_id, ev))) => match ev.event_type.as_str() {
+                "Quote" => {
+                    info!(
+                        "[Channel {}] QUOTE {}: Bid={:.2}, Ask={:.2} (Size: {}x{}) Time: {:?}",
+                        channel_id,
+                        ev.data.symbol,
+                        ev.data.bid_price.unwrap_or(f64::NAN),
+                        ev.data.ask_price.unwrap_or(f64::NAN),
+                        ev.data.bid_size.unwrap_or(f64::NAN),
+                        ev.data.ask_size.unwrap_or(f64::NAN),
+                        ev.data.event_time
+                    );
+                }
+                "Trade" => {
+                    info!(
+                        "[Channel {}] TRADE {}: Price={:.2}, Size={} Time: {:?}",
+                        channel_id,
+                        ev.data.symbol,
+                        ev.data.ask_price.unwrap_or(f64::NAN),
+                        ev.data.ask_size.unwrap_or(f64::NAN),
+                        ev.data.event_time
+                    );
+                }
+                _ => {
+                    info!(
+                        "[Channel {}] Unknown event type: {}",
+                        channel_id, ev.event_type
+                    );
                 }
             },
             Ok(None) => {
                 // No events available, sleep briefly
                 time::sleep(Duration::from_millis(100)).await;
-            },
+            }
             Err(e) => {
                 error!("Error receiving events: {}", e);
                 running = false;
