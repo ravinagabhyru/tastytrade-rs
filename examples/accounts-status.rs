@@ -4,9 +4,23 @@ use tastytrade_rs::TastyTrade;
 #[tokio::main]
 async fn main() {
     let mut args = std::env::args().skip(1);
-    let username = args.next().unwrap();
-    let password = args.next().unwrap();
-    let live = args.next().unwrap();
+    let username = match args.next() {
+        Some(u) => u,
+        None => {
+            eprintln!("Error: Missing username argument.");
+            eprintln!("Usage: accounts-status <username> <password> [live]");
+            process::exit(1);
+        }
+    };
+    let password = match args.next() {
+        Some(p) => p,
+        None => {
+            eprintln!("Error: Missing password argument.");
+            eprintln!("Usage: accounts-status <username> <password> [live]");
+            process::exit(1);
+        }
+    };
+    let live = args.next().unwrap_or_else(|| "demo".to_string());
 
     let live = if live == "live" { true } else { false };
 

@@ -307,3 +307,254 @@ impl fmt::Display for SnapshotTimeOfDay {
         write!(f, "{:?}", self)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use rust_decimal::Decimal;
+    use std::str::FromStr;
+
+    #[test]
+    fn test_account_number_from_str() {
+        let account_number = AccountNumber::from("12345");
+        assert_eq!(account_number.0, "12345");
+    }
+
+    #[test]
+    fn test_account_number_from_string() {
+        let account_number = AccountNumber::from("ABCDE".to_string());
+        assert_eq!(account_number.0, "ABCDE");
+    }
+
+    #[test]
+    fn test_account_number_ordering_and_equality() {
+        let acc1 = AccountNumber::from("AAA123");
+        let acc2 = AccountNumber::from("AAA123");
+        let acc3 = AccountNumber::from("BBB456");
+
+        assert_eq!(acc1, acc2);
+        assert_ne!(acc1, acc3);
+        assert!(acc1 < acc3); // AAA123 < BBB456 alphabetically
+    }
+
+    #[test]
+    fn test_snapshot_time_of_day_display() {
+        assert_eq!(format!("{}", SnapshotTimeOfDay::EOD), "EOD");
+        assert_eq!(format!("{}", SnapshotTimeOfDay::BOD), "BOD");
+    }
+
+    #[test]
+    fn test_account_details_deserialization() {
+        let json = json!({
+            "account-number": "ACC123",
+            "external-id": "EXT456",
+            "opened-at": "2023-01-01T00:00:00Z",
+            "nickname": "Main Account",
+            "account-type-name": "Individual",
+            "day-trader-status": true,
+            "is-firm-error": false,
+            "is-firm-proprietary": false,
+            "is-test-drive": true,
+            "margin-or-cash": "Margin",
+            "is-foreign": false,
+            "funding-date": "2023-01-01"
+        });
+
+        let account_details: AccountDetails = serde_json::from_value(json).unwrap();
+        assert_eq!(account_details.account_number.0, "ACC123");
+        assert_eq!(account_details.external_id, Some("EXT456".to_string()));
+        assert_eq!(account_details.opened_at, "2023-01-01T00:00:00Z");
+        assert_eq!(account_details.nickname, "Main Account");
+        assert_eq!(account_details.account_type_name, "Individual");
+        assert!(account_details.day_trader_status);
+        assert!(!account_details.is_firm_error);
+        assert!(!account_details.is_firm_proprietary);
+        assert_eq!(account_details.is_test_drive, Some(true));
+        assert_eq!(account_details.margin_or_cash, "Margin");
+        assert!(!account_details.is_foreign);
+        assert_eq!(account_details.funding_date, Some("2023-01-01".to_string()));
+    }
+
+    #[test]
+    fn test_account_inner_deserialization() {
+        let json = json!({
+            "account": {
+                "account-number": "ACC789",
+                "external-id": null,
+                "opened-at": "2023-01-01T00:00:00Z",
+                "nickname": "Test Account",
+                "account-type-name": "Individual",
+                "day-trader-status": false,
+                "is-firm-error": false,
+                "is-firm-proprietary": false,
+                "is-test-drive": null,
+                "margin-or-cash": "Cash",
+                "is-foreign": false,
+                "funding-date": null
+            },
+            "authority-level": "Owner"
+        });
+
+        let account_inner: AccountInner = serde_json::from_value(json).unwrap();
+        assert_eq!(account_inner.account.account_number.0, "ACC789");
+        assert_eq!(account_inner.account.nickname, "Test Account");
+        assert!(!account_inner.account.day_trader_status);
+        assert_eq!(account_inner.authority_level, "Owner");
+    }
+
+    #[test]
+    fn test_balance_deserialization() {
+        let json = json!({
+            "account-number": "ACC123",
+            "cash-balance": "10000.50",
+            "long-equity-value": "25000.75",
+            "short-equity-value": "0.00",
+            "long-derivative-value": "5000.25",
+            "short-derivative-value": "1000.00",
+            "long-futures-value": "0.00",
+            "short-futures-value": "0.00",
+            "long-futures-derivative-value": "0.00",
+            "short-futures-derivative-value": "0.00",
+            "long-margineable-value": "30000.00",
+            "short-margineable-value": "1000.00",
+            "margin-equity": "39000.50",
+            "equity-buying-power": "78000.00",
+            "derivative-buying-power": "39000.50",
+            "day-trading-buying-power": "156000.00",
+            "futures-margin-requirement": "0.00",
+            "available-trading-funds": "39000.50",
+            "maintenance-requirement": "7500.00",
+            "maintenance-call-value": "0.00",
+            "reg-t-call-value": "0.00",
+            "day-trading-call-value": "0.00",
+            "day-equity-call-value": "0.00",
+            "net-liquidating-value": "39000.50",
+            "cash-available-to-withdraw": "10000.50",
+            "day-trade-excess": "148500.00",
+            "pending-cash": "0.00",
+            "pending-cash-effect": "None",
+            "pending-margin-interest": "0.00",
+            "effective-cryptocurrency-buying-power": "0.00",
+            "updated-at": "2023-01-01T12:00:00Z"
+        });
+
+        let balance: Balance = serde_json::from_value(json).unwrap();
+        assert_eq!(balance.account_number.0, "ACC123");
+        assert_eq!(balance.cash_balance, Decimal::from_str("10000.50").unwrap());
+        assert_eq!(balance.long_equity_value, Decimal::from_str("25000.75").unwrap());
+        assert_eq!(balance.short_derivative_value, Decimal::from_str("1000.00").unwrap());
+        assert!(matches!(balance.pending_cash_effect, PriceEffect::None));
+        assert_eq!(balance.updated_at, "2023-01-01T12:00:00Z");
+    }
+
+    #[test]
+    fn test_balance_snapshot_deserialization() {
+        let json = json!({
+            "account-number": "ACC456",
+            "cash-balance": "15000.25",
+            "long-equity-value": "35000.50",
+            "short-equity-value": "0.00",
+            "long-derivative-value": "7500.00",
+            "short-derivative-value": "2500.00",
+            "long-futures-value": "0.00",
+            "short-futures-value": "0.00",
+            "long-futures-derivative-value": "0.00",
+            "short-futures-derivative-value": "0.00",
+            "long-margineable-value": "42500.50",
+            "short-margineable-value": "2500.00",
+            "margin-equity": "55000.25",
+            "equity-buying-power": "110000.50",
+            "derivative-buying-power": "55000.25",
+            "day-trading-buying-power": "220000.50",
+            "futures-margin-requirement": "0.00",
+            "available-trading-funds": "55000.25",
+            "maintenance-requirement": "10000.00",
+            "maintenance-call-value": "0.00",
+            "reg-t-call-value": "0.00",
+            "day-trading-call-value": "0.00",
+            "day-equity-call-value": "0.00",
+            "net-liquidating-value": "55000.25",
+            "cash-available-to-withdraw": "15000.25",
+            "day-trade-excess": "210000.50",
+            "pending-cash": "0.00",
+            "pending-cash-effect": "Credit",
+            "snapshot-date": "2023-01-01"
+        });
+
+        let balance_snapshot: BalanceSnapshot = serde_json::from_value(json).unwrap();
+        assert_eq!(balance_snapshot.account_number.0, "ACC456");
+        assert_eq!(balance_snapshot.cash_balance, Decimal::from_str("15000.25").unwrap());
+        assert_eq!(balance_snapshot.net_liquidating_value, Decimal::from_str("55000.25").unwrap());
+        assert!(matches!(balance_snapshot.pending_cash_effect, PriceEffect::Credit));
+        
+        // Test date parsing
+        use chrono::NaiveDate;
+        let expected_date = NaiveDate::from_ymd_opt(2023, 1, 1).unwrap();
+        assert_eq!(balance_snapshot.snapshot_date, expected_date);
+    }
+
+    #[test]
+    fn test_snapshot_time_of_day_serde() {
+        // Test serialization
+        assert_eq!(serde_json::to_string(&SnapshotTimeOfDay::EOD).unwrap(), "\"EOD\"");
+        assert_eq!(serde_json::to_string(&SnapshotTimeOfDay::BOD).unwrap(), "\"BOD\"");
+
+        // Test deserialization
+        let eod: SnapshotTimeOfDay = serde_json::from_str("\"EOD\"").unwrap();
+        let bod: SnapshotTimeOfDay = serde_json::from_str("\"BOD\"").unwrap();
+        
+        assert!(matches!(eod, SnapshotTimeOfDay::EOD));
+        assert!(matches!(bod, SnapshotTimeOfDay::BOD));
+    }
+
+    #[test]
+    fn test_balance_arbitrary_precision_fields() {
+        // Test that all decimal fields can handle high precision
+        let json = json!({
+            "account-number": "PREC123",
+            "cash-balance": "12345.123456789",
+            "long-equity-value": "98765.987654321",
+            "short-equity-value": "0.000000001",
+            "long-derivative-value": "5555.555555555",
+            "short-derivative-value": "1111.111111111",
+            "long-futures-value": "0.123456789",
+            "short-futures-value": "0.987654321",
+            "long-futures-derivative-value": "333.333333333",
+            "short-futures-derivative-value": "666.666666666",
+            "long-margineable-value": "77777.777777777",
+            "short-margineable-value": "22222.222222222",
+            "margin-equity": "99999.999999999",
+            "equity-buying-power": "199999.999999998",
+            "derivative-buying-power": "99999.999999999",
+            "day-trading-buying-power": "399999.999999996",
+            "futures-margin-requirement": "1234.567890123",
+            "available-trading-funds": "88888.888888888",
+            "maintenance-requirement": "11111.111111111",
+            "maintenance-call-value": "0.000000000",
+            "reg-t-call-value": "0.000000000",
+            "day-trading-call-value": "0.000000000",
+            "day-equity-call-value": "0.000000000",
+            "net-liquidating-value": "123456.123456789",
+            "cash-available-to-withdraw": "12345.123456789",
+            "day-trade-excess": "388888.876543210",
+            "pending-cash": "0.000000001",
+            "pending-cash-effect": "Debit",
+            "pending-margin-interest": "1.234567890",
+            "effective-cryptocurrency-buying-power": "0.000000000",
+            "updated-at": "2023-01-01T12:00:00Z"
+        });
+
+        let balance: Balance = serde_json::from_value(json).unwrap();
+        
+        // Test high precision preservation
+        assert_eq!(balance.cash_balance, Decimal::from_str("12345.123456789").unwrap());
+        assert_eq!(balance.long_equity_value, Decimal::from_str("98765.987654321").unwrap());
+        assert_eq!(balance.short_equity_value, Decimal::from_str("0.000000001").unwrap());
+        assert_eq!(balance.net_liquidating_value, Decimal::from_str("123456.123456789").unwrap());
+        assert_eq!(balance.pending_margin_interest, Decimal::from_str("1.234567890").unwrap());
+    }
+
+    // Note: We can't easily test the selection logic without mocking the HTTP calls
+    // That would require integration tests marked with #[ignore]
+}

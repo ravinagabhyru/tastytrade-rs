@@ -31,7 +31,7 @@
 //! }
 //! ```
 
-mod dxlink;
+mod dxlink;  // Now that dxlink dependency is available
 mod error;
 mod types;
 

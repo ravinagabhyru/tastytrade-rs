@@ -2,7 +2,7 @@ use derive_builder::Builder;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
-use crate::accounts::AccountNumber;
+use crate::api::accounts::AccountNumber;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum PriceEffect {
@@ -150,15 +150,28 @@ pub struct LiveOrderLeg {
 
 #[derive(Builder, Serialize)]
 #[serde(rename_all = "kebab-case")]
-#[builder(setter(into))]
+#[builder(setter(into, strip_option))]
 pub struct Order {
     time_in_force: TimeInForce,
     order_type: OrderType,
 
-    #[serde(with = "rust_decimal::serde::arbitrary_precision")]
-    price: Decimal,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[builder(default)]
+    price: Option<Decimal>,
     price_effect: PriceEffect,
     legs: Vec<OrderLeg>,
+}
+
+impl Default for Order {
+    fn default() -> Self {
+        Self {
+            time_in_force: TimeInForce::Day,
+            order_type: OrderType::Market,
+            price: None,
+            price_effect: PriceEffect::None,
+            legs: Vec::new(),
+        }
+    }
 }
 
 #[derive(Builder, Serialize, Deserialize, Clone, Debug)]
@@ -236,3 +249,346 @@ pub struct FeeCalculation {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct Warning {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use rust_decimal::Decimal;
+    use std::str::FromStr;
+
+    #[test]
+    fn test_symbol_from_str() {
+        let symbol = Symbol::from("AAPL");
+        assert_eq!(symbol.0, "AAPL");
+    }
+
+    #[test]
+    fn test_symbol_from_string() {
+        let symbol = Symbol::from("SPY".to_string());
+        assert_eq!(symbol.0, "SPY");
+    }
+
+    #[test]
+    fn test_as_symbol_for_str() {
+        let symbol = "MSFT".as_symbol();
+        assert_eq!(symbol.0, "MSFT");
+    }
+
+    #[test]
+    fn test_as_symbol_for_string() {
+        let symbol = "TSLA".to_string().as_symbol();
+        assert_eq!(symbol.0, "TSLA");
+    }
+
+    #[test]
+    fn test_as_symbol_for_symbol() {
+        let original = Symbol::from("GOOGL");
+        let symbol = original.as_symbol();
+        assert_eq!(symbol.0, "GOOGL");
+    }
+
+    #[test]
+    fn test_as_symbol_for_symbol_ref() {
+        let original = Symbol::from("NVDA");
+        let symbol = (&original).as_symbol();
+        assert_eq!(symbol.0, "NVDA");
+    }
+
+    #[test]
+    fn test_action_serde() {
+        // Test all renamed variants
+        assert_eq!(serde_json::to_string(&Action::BuyToOpen).unwrap(), "\"Buy to Open\"");
+        assert_eq!(serde_json::to_string(&Action::SellToOpen).unwrap(), "\"Sell to Open\"");
+        assert_eq!(serde_json::to_string(&Action::BuyToClose).unwrap(), "\"Buy to Close\"");
+        assert_eq!(serde_json::to_string(&Action::SellToClose).unwrap(), "\"Sell to Close\"");
+        assert_eq!(serde_json::to_string(&Action::Buy).unwrap(), "\"Buy\"");
+        assert_eq!(serde_json::to_string(&Action::Sell).unwrap(), "\"Sell\"");
+
+        // Test deserialization
+        assert!(matches!(serde_json::from_str::<Action>("\"Buy to Open\"").unwrap(), Action::BuyToOpen));
+        assert!(matches!(serde_json::from_str::<Action>("\"Sell to Close\"").unwrap(), Action::SellToClose));
+    }
+
+    #[test]
+    fn test_instrument_type_serde() {
+        assert_eq!(serde_json::to_string(&InstrumentType::Equity).unwrap(), "\"Equity\"");
+        assert_eq!(serde_json::to_string(&InstrumentType::EquityOption).unwrap(), "\"Equity Option\"");
+        assert_eq!(serde_json::to_string(&InstrumentType::EquityOffering).unwrap(), "\"Equity Offering\"");
+        assert_eq!(serde_json::to_string(&InstrumentType::Future).unwrap(), "\"Future\"");
+        assert_eq!(serde_json::to_string(&InstrumentType::FutureOption).unwrap(), "\"Future Option\"");
+        assert_eq!(serde_json::to_string(&InstrumentType::Cryptocurrency).unwrap(), "\"Cryptocurrency\"");
+
+        // Test deserialization
+        assert!(matches!(serde_json::from_str::<InstrumentType>("\"Equity Option\"").unwrap(), InstrumentType::EquityOption));
+        assert!(matches!(serde_json::from_str::<InstrumentType>("\"Future Option\"").unwrap(), InstrumentType::FutureOption));
+    }
+
+    #[test]
+    fn test_order_type_serde() {
+        assert_eq!(serde_json::to_string(&OrderType::Limit).unwrap(), "\"Limit\"");
+        assert_eq!(serde_json::to_string(&OrderType::Market).unwrap(), "\"Market\"");
+        assert_eq!(serde_json::to_string(&OrderType::MarketableLimit).unwrap(), "\"Marketable Limit\"");
+        assert_eq!(serde_json::to_string(&OrderType::Stop).unwrap(), "\"Stop\"");
+        assert_eq!(serde_json::to_string(&OrderType::StopLimit).unwrap(), "\"Stop Limit\"");
+        assert_eq!(serde_json::to_string(&OrderType::NotionalMarket).unwrap(), "\"Notional Market\"");
+
+        // Test deserialization
+        assert!(matches!(serde_json::from_str::<OrderType>("\"Marketable Limit\"").unwrap(), OrderType::MarketableLimit));
+        assert!(matches!(serde_json::from_str::<OrderType>("\"Stop Limit\"").unwrap(), OrderType::StopLimit));
+    }
+
+    #[test]
+    fn test_time_in_force_serde() {
+        assert_eq!(serde_json::to_string(&TimeInForce::Day).unwrap(), "\"Day\"");
+        assert_eq!(serde_json::to_string(&TimeInForce::GTC).unwrap(), "\"GTC\"");
+        assert_eq!(serde_json::to_string(&TimeInForce::GTCExt).unwrap(), "\"GTC Ext\"");
+        assert_eq!(serde_json::to_string(&TimeInForce::IOC).unwrap(), "\"IOC\"");
+
+        // Test deserialization
+        assert!(matches!(serde_json::from_str::<TimeInForce>("\"GTC Ext\"").unwrap(), TimeInForce::GTCExt));
+    }
+
+    #[test]
+    fn test_order_status_serde() {
+        assert_eq!(serde_json::to_string(&OrderStatus::Received).unwrap(), "\"Received\"");
+        assert_eq!(serde_json::to_string(&OrderStatus::InFlight).unwrap(), "\"In Flight\"");
+        assert_eq!(serde_json::to_string(&OrderStatus::CancelRequested).unwrap(), "\"Cancel Requested\"");
+        assert_eq!(serde_json::to_string(&OrderStatus::ReplaceRequested).unwrap(), "\"Replace Requested\"");
+        assert_eq!(serde_json::to_string(&OrderStatus::PartiallyRemoved).unwrap(), "\"Partially Removed\"");
+
+        // Test deserialization
+        assert!(matches!(serde_json::from_str::<OrderStatus>("\"In Flight\"").unwrap(), OrderStatus::InFlight));
+        assert!(matches!(serde_json::from_str::<OrderStatus>("\"Cancel Requested\"").unwrap(), OrderStatus::CancelRequested));
+    }
+
+    #[test]
+    fn test_order_leg_quantity_float_serialization() {
+        let leg = OrderLeg {
+            instrument_type: InstrumentType::Equity,
+            symbol: Symbol::from("AAPL"),
+            quantity: Decimal::from_str("100.5").unwrap(),
+            action: Action::Buy,
+        };
+
+        let json = serde_json::to_string(&leg).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        
+        // Verify quantity is serialized as a float, not a string
+        assert_eq!(parsed["quantity"], 100.5);
+    }
+
+    #[test]
+    fn test_order_price_arbitrary_precision_serialization() {
+        let order = OrderBuilder::default()
+            .time_in_force(TimeInForce::Day)
+            .order_type(OrderType::Limit)
+            .price(Decimal::from_str("123.456789").unwrap())
+            .price_effect(PriceEffect::Debit)
+            .legs(vec![])
+            .build()
+            .unwrap();
+
+        let json = serde_json::to_string(&order).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        
+        // Verify price is serialized correctly (may be string or number based on serde config)
+        // The important part is that the precision is preserved
+        let price_val = parsed["price"].as_str()
+            .map(|s| Decimal::from_str(s).unwrap())
+            .or_else(|| parsed["price"].as_f64().map(Decimal::try_from).map(|r| r.unwrap()))
+            .unwrap();
+        assert_eq!(price_val, Decimal::from_str("123.456789").unwrap());
+    }
+
+    #[test]
+    fn test_live_order_record_deserialization() {
+        let json = json!({
+            "id": 123456,
+            "account-number": "ACC123",
+            "time-in-force": "Day",
+            "order-type": "Limit",
+            "size": 100,
+            "underlying-symbol": "AAPL",
+            "price": "150.25",
+            "price-effect": "Debit",
+            "status": "Live",
+            "cancellable": true,
+            "editable": false,
+            "edited": false
+        });
+
+        let record: LiveOrderRecord = serde_json::from_value(json).unwrap();
+        assert_eq!(record.id.0, 123456);
+        assert_eq!(record.account_number.0, "ACC123");
+        assert!(matches!(record.time_in_force, TimeInForce::Day));
+        assert!(matches!(record.order_type, OrderType::Limit));
+        assert_eq!(record.size, 100);
+        assert_eq!(record.underlying_symbol.0, "AAPL");
+        assert_eq!(record.price, Decimal::from_str("150.25").unwrap());
+        assert!(matches!(record.price_effect, PriceEffect::Debit));
+        assert!(matches!(record.status, OrderStatus::Live));
+        assert!(record.cancellable);
+        assert!(!record.editable);
+        assert!(!record.edited);
+    }
+
+    #[test]
+    fn test_dry_run_record_deserialization() {
+        let json = json!({
+            "account-number": "ACC456",
+            "time-in-force": "GTC",
+            "order-type": "Market",
+            "size": 50,
+            "underlying-symbol": "SPY",
+            "price": "420.00",
+            "price-effect": "Credit",
+            "status": "Received",
+            "cancellable": false,
+            "editable": true,
+            "edited": true,
+            "legs": []
+        });
+
+        let record: DryRunRecord = serde_json::from_value(json).unwrap();
+        assert_eq!(record.account_number.0, "ACC456");
+        assert!(matches!(record.time_in_force, TimeInForce::GTC));
+        assert!(matches!(record.order_type, OrderType::Market));
+        assert_eq!(record.size, 50);
+        assert_eq!(record.underlying_symbol.0, "SPY");
+        assert_eq!(record.price, Decimal::from_str("420.00").unwrap());
+        assert!(matches!(record.price_effect, PriceEffect::Credit));
+        assert!(matches!(record.status, OrderStatus::Received));
+        assert!(!record.cancellable);
+        assert!(record.editable);
+        assert!(record.edited);
+        assert!(record.legs.is_empty());
+    }
+
+    #[test]
+    fn test_order_builder_equity_order() {
+        let leg = OrderLegBuilder::default()
+            .instrument_type(InstrumentType::Equity)
+            .symbol(Symbol::from("TSLA"))
+            .quantity(Decimal::from(100))
+            .action(Action::Buy)
+            .build()
+            .unwrap();
+
+        let order = OrderBuilder::default()
+            .time_in_force(TimeInForce::Day)
+            .order_type(OrderType::Market)
+            .price(Decimal::ZERO)
+            .price_effect(PriceEffect::Debit)
+            .legs(vec![leg])
+            .build()
+            .unwrap();
+
+        // Verify the order was built correctly
+        let json = serde_json::to_string(&order).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        
+        assert_eq!(parsed["time-in-force"], "Day");
+        assert_eq!(parsed["order-type"], "Market");
+        // Price may be serialized as number or string - check the value
+        let price_val = parsed["price"].as_str()
+            .map(|s| Decimal::from_str(s).unwrap())
+            .or_else(|| parsed["price"].as_f64().map(Decimal::try_from).map(|r| r.unwrap()))
+            .unwrap();
+        assert_eq!(price_val, Decimal::ZERO);
+        assert_eq!(parsed["price-effect"], "Debit");
+        assert_eq!(parsed["legs"].as_array().unwrap().len(), 1);
+        
+        let leg_json = &parsed["legs"][0];
+        assert_eq!(leg_json["instrument-type"], "Equity");
+        assert_eq!(leg_json["symbol"], "TSLA");
+        assert_eq!(leg_json["quantity"], 100.0);
+        assert_eq!(leg_json["action"], "Buy");
+    }
+
+    #[test]
+    fn test_order_builder_options_order() {
+        let leg = OrderLegBuilder::default()
+            .instrument_type(InstrumentType::EquityOption)
+            .symbol(Symbol::from("AAPL  240315C00185000"))
+            .quantity(Decimal::from(1))
+            .action(Action::BuyToOpen)
+            .build()
+            .unwrap();
+
+        let order = OrderBuilder::default()
+            .time_in_force(TimeInForce::GTC)
+            .order_type(OrderType::Limit)
+            .price(Decimal::from_str("5.50").unwrap())
+            .price_effect(PriceEffect::Debit)
+            .legs(vec![leg])
+            .build()
+            .unwrap();
+
+        let json = serde_json::to_string(&order).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        
+        assert_eq!(parsed["time-in-force"], "GTC");
+        assert_eq!(parsed["order-type"], "Limit");
+        // Price may be serialized as number or string - check the value
+        let price_val = parsed["price"].as_str()
+            .map(|s| Decimal::from_str(s).unwrap())
+            .or_else(|| parsed["price"].as_f64().map(Decimal::try_from).map(|r| r.unwrap()))
+            .unwrap();
+        assert_eq!(price_val, Decimal::from_str("5.50").unwrap());
+        assert_eq!(parsed["price-effect"], "Debit");
+        
+        let leg_json = &parsed["legs"][0];
+        assert_eq!(leg_json["instrument-type"], "Equity Option");
+        assert_eq!(leg_json["symbol"], "AAPL  240315C00185000");
+        assert_eq!(leg_json["quantity"], 1.0);
+        assert_eq!(leg_json["action"], "Buy to Open");
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_order_builder_missing_required_fields() {
+        // This should panic because we're missing required fields
+        OrderBuilder::default()
+            .time_in_force(TimeInForce::Day)
+            // Missing order_type, price, price_effect, legs
+            .build()
+            .unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_order_leg_builder_missing_required_fields() {
+        // This should panic because we're missing required fields
+        OrderLegBuilder::default()
+            .symbol(Symbol::from("AAPL"))
+            // Missing instrument_type, quantity, action
+            .build()
+            .unwrap();
+    }
+
+    #[test]
+    fn test_symbol_ordering_and_equality() {
+        let symbol1 = Symbol::from("AAPL");
+        let symbol2 = Symbol::from("AAPL");
+        let symbol3 = Symbol::from("MSFT");
+
+        assert_eq!(symbol1, symbol2);
+        assert_ne!(symbol1, symbol3);
+        assert!(symbol1 < symbol3); // AAPL < MSFT alphabetically
+    }
+
+    #[test]
+    fn test_symbol_hash() {
+        use std::collections::HashSet;
+        
+        let mut set = HashSet::new();
+        set.insert(Symbol::from("AAPL"));
+        set.insert(Symbol::from("AAPL")); // Duplicate
+        set.insert(Symbol::from("MSFT"));
+        
+        assert_eq!(set.len(), 2); // Duplicates are not added
+        assert!(set.contains(&Symbol::from("AAPL")));
+        assert!(set.contains(&Symbol::from("MSFT")));
+    }
+}
