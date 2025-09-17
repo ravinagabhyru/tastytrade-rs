@@ -1,8 +1,65 @@
 # tastytrade-rs
 
-Rust library for stock market trading through tastytrade's API. Very much work in progress. See [tastytrade-cli](https://github.com/MCHSL/tastytrade-cli) for an example of a more involved application using this library.
+Rust library for stock market trading through tastytrade's API. Provides comprehensive access to:
 
-# Example
+- **Authentication** and session management (production and sandbox)
+- **Account management** and portfolio operations
+- **Order placement**, modification, and management
+- **Real-time market data** streaming via DxLink protocol
+- **Options chains** and instrument data
+- **Quote streaming** with Greeks, trades, and market events
+
+## Quick Start
+
+### Building
+
+```bash
+# Build the library
+cargo build
+
+# Run tests
+cargo test
+```
+
+### Running Examples
+
+The `examples/` directory contains several examples demonstrating different features:
+
+```bash
+# Basic login test
+cargo run --example test_login <username> <password>
+
+# Account status and balances
+cargo run --example accounts-status <username> <password> <demo/live>
+
+# Real-time quote streaming
+cargo run --example quote-streaming <username> <password> [live]
+
+# Options chains with live Greeks data
+cargo run --example option-chains <username> <password> <demo/live> <symbol> [options]
+```
+
+#### Options Chain Example
+
+The options chain example supports filtering and live market data:
+
+```bash
+# Basic options chain
+cargo run --example option-chains myuser mypass demo AAPL
+
+# With live streaming data (quotes + Greeks)
+cargo run --example option-chains myuser mypass demo AAPL --with-streaming
+
+# With filters and streaming
+cargo run --example option-chains myuser mypass demo SPX --strike-range 6590-6620 --max-dte 45 --with-streaming
+```
+
+**Options:**
+- `--strike-range min-max` - Filter by strike price range
+- `--max-dte days` - Filter by maximum days to expiration
+- `--with-streaming` - Fetch live quotes and Greeks via DxLink
+
+# Library Usage Example
 
 ```rust
     let tasty = TastyTrade::login("username", "password", false)

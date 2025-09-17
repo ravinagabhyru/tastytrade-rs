@@ -38,5 +38,6 @@ mod types;
 pub use dxlink::DxLinkQuoteStreamer;
 pub use error::QuoteStreamingError;
 pub use types::{
-    ApiQuoteTokens, ApiQuoteTokensData, DxFeedSymbol, QuoteData, QuoteStreamerTokens, StreamerEvent,
+    ApiQuoteTokens, ApiQuoteTokensData, DxFeedSymbol, GreeksData, QuoteData, QuoteStreamerTokens,
+    StreamerEvent, StreamerEventData,
 };

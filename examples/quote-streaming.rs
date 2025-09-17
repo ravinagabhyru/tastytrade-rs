@@ -2,6 +2,7 @@ use dxlink_rs::feed::FeedContract;
 use std::process;
 use std::time::Duration;
 use tastytrade_rs::TastyTrade;
+use tastytrade_rs::api::quote_streaming::StreamerEventData;
 
 use tokio::time;
 use tracing::{error, info};
@@ -12,7 +13,7 @@ async fn main() {
 
     // Initialize tracing subscriber
     let _ = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::DEBUG)
+        .with_max_level(tracing::Level::INFO)
         .try_init();
 
     info!("Logger initialized. Starting quote-streaming example");
@@ -120,33 +121,30 @@ async fn main() {
     let mut running = true;
     while running {
         match streamer.receive_event().await {
-            Ok(Some((channel_id, ev))) => match ev.event_type.as_str() {
-                "Quote" => {
+            Ok(Some((channel_id, ev))) => match &ev.data {
+                StreamerEventData::Quote(quote_data) => {
                     info!(
                         "[Channel {}] QUOTE {}: Bid={:.2}, Ask={:.2} (Size: {}x{}) Time: {:?}",
                         channel_id,
-                        ev.data.symbol,
-                        ev.data.bid_price.unwrap_or(f64::NAN),
-                        ev.data.ask_price.unwrap_or(f64::NAN),
-                        ev.data.bid_size.unwrap_or(f64::NAN),
-                        ev.data.ask_size.unwrap_or(f64::NAN),
-                        ev.data.event_time
+                        quote_data.symbol,
+                        quote_data.bid_price.unwrap_or(f64::NAN),
+                        quote_data.ask_price.unwrap_or(f64::NAN),
+                        quote_data.bid_size.unwrap_or(f64::NAN),
+                        quote_data.ask_size.unwrap_or(f64::NAN),
+                        quote_data.event_time
                     );
                 }
-                "Trade" => {
+                StreamerEventData::Greeks(greeks_data) => {
                     info!(
-                        "[Channel {}] TRADE {}: Price={:.2}, Size={} Time: {:?}",
+                        "[Channel {}] GREEKS {}: δ:{:.3}, γ:{:.4}, θ:{:.3}, ν:{:.3}, ρ:{:.3}, IV:{:.1}%",
                         channel_id,
-                        ev.data.symbol,
-                        ev.data.ask_price.unwrap_or(f64::NAN),
-                        ev.data.ask_size.unwrap_or(f64::NAN),
-                        ev.data.event_time
-                    );
-                }
-                _ => {
-                    info!(
-                        "[Channel {}] Unknown event type: {}",
-                        channel_id, ev.event_type
+                        greeks_data.symbol,
+                        greeks_data.delta.unwrap_or(f64::NAN),
+                        greeks_data.gamma.unwrap_or(f64::NAN),
+                        greeks_data.theta.unwrap_or(f64::NAN),
+                        greeks_data.vega.unwrap_or(f64::NAN),
+                        greeks_data.rho.unwrap_or(f64::NAN),
+                        greeks_data.volatility.map(|v| v * 100.0).unwrap_or(f64::NAN)
                     );
                 }
             },

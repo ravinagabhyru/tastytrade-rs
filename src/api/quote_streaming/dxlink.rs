@@ -11,7 +11,7 @@ use tokio::sync::{broadcast, Mutex};
 use tracing::{debug, error, info, warn};
 
 use super::error::QuoteStreamingError;
-use super::types::{QuoteData, StreamerEvent};
+use super::types::{GreeksData, QuoteData, StreamerEvent, StreamerEventData};
 use crate::api::base::TastyError;
 use crate::api::quote_streaming::ApiQuoteTokensData;
 use crate::Result;
@@ -240,6 +240,22 @@ impl DxLinkQuoteStreamer {
         self.subscribe(channel_id, "Trade", symbols).await
     }
 
+    /// Subscribes to Greeks for the given symbols on a channel
+    ///
+    /// # Arguments
+    /// * `channel_id` - The channel ID to subscribe on
+    /// * `symbols` - A slice of symbols to subscribe to
+    ///
+    /// # Returns
+    /// * `Result<()>` - Ok if subscription was successful, Err otherwise
+    pub async fn subscribe_greeks(
+        &self,
+        channel_id: u64,
+        symbols: &[impl AsRef<str>],
+    ) -> Result<()> {
+        self.subscribe(channel_id, "Greeks", symbols).await
+    }
+
     /// Unsubscribes from a specific event type for the given symbols on a channel
     ///
     /// # Arguments
@@ -378,7 +394,7 @@ impl DxLinkQuoteStreamer {
                             };
                             return Ok(Some(StreamerEvent {
                                 event_type: "Quote".to_string(),
-                                data: quote_data,
+                                data: StreamerEventData::Quote(quote_data),
                             }));
                         }
                         DxLinkFeedEvent::Trade(trade_event) => {
@@ -398,7 +414,27 @@ impl DxLinkQuoteStreamer {
                             };
                             return Ok(Some(StreamerEvent {
                                 event_type: "Trade".to_string(),
-                                data: quote_data,
+                                data: StreamerEventData::Quote(quote_data),
+                            }));
+                        }
+                        DxLinkFeedEvent::Greeks(greeks_event) => {
+                            debug!(
+                                "Received Greeks event for symbol: {} on channel {}",
+                                greeks_event.event_symbol, channel_id
+                            );
+                            let greeks_data = GreeksData {
+                                symbol: greeks_event.event_symbol.clone(),
+                                volatility: greeks_event.volatility.as_ref().map(|jd| jd.to_f64()),
+                                delta: greeks_event.delta.as_ref().map(|jd| jd.to_f64()),
+                                gamma: greeks_event.gamma.as_ref().map(|jd| jd.to_f64()),
+                                theta: greeks_event.theta.as_ref().map(|jd| jd.to_f64()),
+                                rho: greeks_event.rho.as_ref().map(|jd| jd.to_f64()),
+                                vega: greeks_event.vega.as_ref().map(|jd| jd.to_f64()),
+                                event_time: greeks_event.event_time,
+                            };
+                            return Ok(Some(StreamerEvent {
+                                event_type: "Greeks".to_string(),
+                                data: StreamerEventData::Greeks(greeks_data),
                             }));
                         }
                         _ => {
