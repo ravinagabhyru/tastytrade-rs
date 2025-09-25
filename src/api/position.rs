@@ -80,22 +80,31 @@ pub struct BriefPosition {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
     use rust_decimal::Decimal;
+    use serde_json::json;
     use std::str::FromStr;
 
     #[test]
     fn test_quantity_direction_serde() {
         // Test serialization
-        assert_eq!(serde_json::to_string(&QuantityDirection::Long).unwrap(), "\"Long\"");
-        assert_eq!(serde_json::to_string(&QuantityDirection::Short).unwrap(), "\"Short\"");
-        assert_eq!(serde_json::to_string(&QuantityDirection::Zero).unwrap(), "\"Zero\"");
+        assert_eq!(
+            serde_json::to_string(&QuantityDirection::Long).unwrap(),
+            "\"Long\""
+        );
+        assert_eq!(
+            serde_json::to_string(&QuantityDirection::Short).unwrap(),
+            "\"Short\""
+        );
+        assert_eq!(
+            serde_json::to_string(&QuantityDirection::Zero).unwrap(),
+            "\"Zero\""
+        );
 
         // Test deserialization
         let long: QuantityDirection = serde_json::from_str("\"Long\"").unwrap();
         let short: QuantityDirection = serde_json::from_str("\"Short\"").unwrap();
         let zero: QuantityDirection = serde_json::from_str("\"Zero\"").unwrap();
-        
+
         assert!(matches!(long, QuantityDirection::Long));
         assert!(matches!(short, QuantityDirection::Short));
         assert!(matches!(zero, QuantityDirection::Zero));
@@ -135,20 +144,41 @@ mod tests {
         assert!(matches!(position.instrument_type, InstrumentType::Equity));
         assert_eq!(position.underlying_symbol.0, "AAPL");
         assert_eq!(position.quantity, Decimal::from_str("100.00").unwrap());
-        assert!(matches!(position.quantity_direction, QuantityDirection::Long));
+        assert!(matches!(
+            position.quantity_direction,
+            QuantityDirection::Long
+        ));
         assert_eq!(position.close_price, Decimal::from_str("150.25").unwrap());
-        assert_eq!(position.average_open_price, Decimal::from_str("145.50").unwrap());
-        assert_eq!(position.average_yearly_market_close_price, Decimal::from_str("148.75").unwrap());
-        assert_eq!(position.average_daily_market_close_price, Decimal::from_str("149.50").unwrap());
+        assert_eq!(
+            position.average_open_price,
+            Decimal::from_str("145.50").unwrap()
+        );
+        assert_eq!(
+            position.average_yearly_market_close_price,
+            Decimal::from_str("148.75").unwrap()
+        );
+        assert_eq!(
+            position.average_daily_market_close_price,
+            Decimal::from_str("149.50").unwrap()
+        );
         assert_eq!(position.multiplier, Decimal::from(1));
         assert!(matches!(position.cost_effect, PriceEffect::Debit));
         assert!(!position.is_suppressed);
         assert!(!position.is_frozen);
-        assert_eq!(position.restricted_quantity, Decimal::from_str("0.00").unwrap());
-        assert_eq!(position.realized_day_gain, Decimal::from_str("475.00").unwrap());
+        assert_eq!(
+            position.restricted_quantity,
+            Decimal::from_str("0.00").unwrap()
+        );
+        assert_eq!(
+            position.realized_day_gain,
+            Decimal::from_str("475.00").unwrap()
+        );
         assert_eq!(position.realized_day_gain_effect, "Credit");
         assert_eq!(position.realized_day_gain_date, "2023-01-01");
-        assert_eq!(position.realized_today, Decimal::from_str("475.00").unwrap());
+        assert_eq!(
+            position.realized_today,
+            Decimal::from_str("475.00").unwrap()
+        );
         assert_eq!(position.realized_today_effect, "Credit");
         assert_eq!(position.realized_today_date, "2023-01-01");
         assert_eq!(position.created_at, "2023-01-01T10:00:00Z");
@@ -180,20 +210,38 @@ mod tests {
         let position: BriefPosition = serde_json::from_value(json).unwrap();
         assert_eq!(position.account_number.0, "ACC456");
         assert_eq!(position.symbol.0, "SPY  240115C00450000");
-        assert!(matches!(position.instrument_type, InstrumentType::EquityOption));
+        assert!(matches!(
+            position.instrument_type,
+            InstrumentType::EquityOption
+        ));
         assert_eq!(position.underlying_symbol.0, "SPY");
         assert_eq!(position.quantity, Decimal::from_str("5.00").unwrap());
-        assert!(matches!(position.quantity_direction, QuantityDirection::Short));
+        assert!(matches!(
+            position.quantity_direction,
+            QuantityDirection::Short
+        ));
         assert_eq!(position.close_price, Decimal::from_str("2.50").unwrap());
-        assert_eq!(position.average_open_price, Decimal::from_str("3.25").unwrap());
+        assert_eq!(
+            position.average_open_price,
+            Decimal::from_str("3.25").unwrap()
+        );
         assert_eq!(position.multiplier, Decimal::from(100));
         assert!(matches!(position.cost_effect, PriceEffect::Credit));
         assert!(position.is_suppressed);
         assert!(!position.is_frozen);
         // Note: BriefPosition has restricted_quantity as float, not arbitrary_precision
-        assert_eq!(position.restricted_quantity, Decimal::try_from(1.5).unwrap());
-        assert_eq!(position.realized_day_gain, Decimal::from_str("-375.00").unwrap());
-        assert_eq!(position.realized_today, Decimal::from_str("-375.00").unwrap());
+        assert_eq!(
+            position.restricted_quantity,
+            Decimal::try_from(1.5).unwrap()
+        );
+        assert_eq!(
+            position.realized_day_gain,
+            Decimal::from_str("-375.00").unwrap()
+        );
+        assert_eq!(
+            position.realized_today,
+            Decimal::from_str("-375.00").unwrap()
+        );
         assert_eq!(position.created_at, "2023-01-01T09:30:00Z");
         assert_eq!(position.updated_at, "2023-01-01T15:30:00Z");
     }
@@ -227,17 +275,41 @@ mod tests {
         });
 
         let position: FullPosition = serde_json::from_value(json).unwrap();
-        
+
         // Test high precision preservation for arbitrary_precision fields
-        assert_eq!(position.quantity, Decimal::from_str("123.123456789").unwrap());
-        assert_eq!(position.close_price, Decimal::from_str("999.999999999").unwrap());
-        assert_eq!(position.average_open_price, Decimal::from_str("888.888888888").unwrap());
-        assert_eq!(position.average_yearly_market_close_price, Decimal::from_str("777.777777777").unwrap());
-        assert_eq!(position.average_daily_market_close_price, Decimal::from_str("666.666666666").unwrap());
-        assert_eq!(position.restricted_quantity, Decimal::from_str("0.000000001").unwrap());
-        assert_eq!(position.realized_day_gain, Decimal::from_str("12345.123456789").unwrap());
-        assert_eq!(position.realized_today, Decimal::from_str("54321.987654321").unwrap());
-        
+        assert_eq!(
+            position.quantity,
+            Decimal::from_str("123.123456789").unwrap()
+        );
+        assert_eq!(
+            position.close_price,
+            Decimal::from_str("999.999999999").unwrap()
+        );
+        assert_eq!(
+            position.average_open_price,
+            Decimal::from_str("888.888888888").unwrap()
+        );
+        assert_eq!(
+            position.average_yearly_market_close_price,
+            Decimal::from_str("777.777777777").unwrap()
+        );
+        assert_eq!(
+            position.average_daily_market_close_price,
+            Decimal::from_str("666.666666666").unwrap()
+        );
+        assert_eq!(
+            position.restricted_quantity,
+            Decimal::from_str("0.000000001").unwrap()
+        );
+        assert_eq!(
+            position.realized_day_gain,
+            Decimal::from_str("12345.123456789").unwrap()
+        );
+        assert_eq!(
+            position.realized_today,
+            Decimal::from_str("54321.987654321").unwrap()
+        );
+
         // multiplier uses float precision
         assert_eq!(position.multiplier, Decimal::try_from(1.5).unwrap());
     }
@@ -266,31 +338,52 @@ mod tests {
         });
 
         let position: BriefPosition = serde_json::from_value(json).unwrap();
-        
+
         // Test arbitrary precision fields
-        assert_eq!(position.quantity, Decimal::from_str("100.123456789").unwrap());
-        assert_eq!(position.close_price, Decimal::from_str("50.987654321").unwrap());
-        assert_eq!(position.average_open_price, Decimal::from_str("51.111111111").unwrap());
-        assert_eq!(position.realized_day_gain, Decimal::from_str("1234.56789").unwrap());
-        assert_eq!(position.realized_today, Decimal::from_str("9876.54321").unwrap());
-        
+        assert_eq!(
+            position.quantity,
+            Decimal::from_str("100.123456789").unwrap()
+        );
+        assert_eq!(
+            position.close_price,
+            Decimal::from_str("50.987654321").unwrap()
+        );
+        assert_eq!(
+            position.average_open_price,
+            Decimal::from_str("51.111111111").unwrap()
+        );
+        assert_eq!(
+            position.realized_day_gain,
+            Decimal::from_str("1234.56789").unwrap()
+        );
+        assert_eq!(
+            position.realized_today,
+            Decimal::from_str("9876.54321").unwrap()
+        );
+
         // Test float precision fields
         assert_eq!(position.multiplier, Decimal::try_from(2.75).unwrap());
         // restricted_quantity is float in BriefPosition (different from FullPosition)
-        assert_eq!(position.restricted_quantity, Decimal::try_from(3.14159).unwrap());
-        
-        assert!(matches!(position.quantity_direction, QuantityDirection::Zero));
+        assert_eq!(
+            position.restricted_quantity,
+            Decimal::try_from(3.14159).unwrap()
+        );
+
+        assert!(matches!(
+            position.quantity_direction,
+            QuantityDirection::Zero
+        ));
         assert!(matches!(position.cost_effect, PriceEffect::None));
         assert!(!position.is_suppressed);
         assert!(position.is_frozen);
     }
 
-    #[test] 
+    #[test]
     fn test_position_copy_and_clone() {
         let direction = QuantityDirection::Long;
         let direction_copy = direction; // Test Copy
         let direction_clone = direction.clone(); // Test Clone
-        
+
         assert!(matches!(direction, QuantityDirection::Long));
         assert!(matches!(direction_copy, QuantityDirection::Long));
         assert!(matches!(direction_clone, QuantityDirection::Long));

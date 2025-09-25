@@ -311,8 +311,8 @@ impl fmt::Display for SnapshotTimeOfDay {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
     use rust_decimal::Decimal;
+    use serde_json::json;
     use std::str::FromStr;
 
     #[test]
@@ -442,8 +442,14 @@ mod tests {
         let balance: Balance = serde_json::from_value(json).unwrap();
         assert_eq!(balance.account_number.0, "ACC123");
         assert_eq!(balance.cash_balance, Decimal::from_str("10000.50").unwrap());
-        assert_eq!(balance.long_equity_value, Decimal::from_str("25000.75").unwrap());
-        assert_eq!(balance.short_derivative_value, Decimal::from_str("1000.00").unwrap());
+        assert_eq!(
+            balance.long_equity_value,
+            Decimal::from_str("25000.75").unwrap()
+        );
+        assert_eq!(
+            balance.short_derivative_value,
+            Decimal::from_str("1000.00").unwrap()
+        );
         assert!(matches!(balance.pending_cash_effect, PriceEffect::None));
         assert_eq!(balance.updated_at, "2023-01-01T12:00:00Z");
     }
@@ -484,10 +490,19 @@ mod tests {
 
         let balance_snapshot: BalanceSnapshot = serde_json::from_value(json).unwrap();
         assert_eq!(balance_snapshot.account_number.0, "ACC456");
-        assert_eq!(balance_snapshot.cash_balance, Decimal::from_str("15000.25").unwrap());
-        assert_eq!(balance_snapshot.net_liquidating_value, Decimal::from_str("55000.25").unwrap());
-        assert!(matches!(balance_snapshot.pending_cash_effect, PriceEffect::Credit));
-        
+        assert_eq!(
+            balance_snapshot.cash_balance,
+            Decimal::from_str("15000.25").unwrap()
+        );
+        assert_eq!(
+            balance_snapshot.net_liquidating_value,
+            Decimal::from_str("55000.25").unwrap()
+        );
+        assert!(matches!(
+            balance_snapshot.pending_cash_effect,
+            PriceEffect::Credit
+        ));
+
         // Test date parsing
         use chrono::NaiveDate;
         let expected_date = NaiveDate::from_ymd_opt(2023, 1, 1).unwrap();
@@ -497,13 +512,19 @@ mod tests {
     #[test]
     fn test_snapshot_time_of_day_serde() {
         // Test serialization
-        assert_eq!(serde_json::to_string(&SnapshotTimeOfDay::EOD).unwrap(), "\"EOD\"");
-        assert_eq!(serde_json::to_string(&SnapshotTimeOfDay::BOD).unwrap(), "\"BOD\"");
+        assert_eq!(
+            serde_json::to_string(&SnapshotTimeOfDay::EOD).unwrap(),
+            "\"EOD\""
+        );
+        assert_eq!(
+            serde_json::to_string(&SnapshotTimeOfDay::BOD).unwrap(),
+            "\"BOD\""
+        );
 
         // Test deserialization
         let eod: SnapshotTimeOfDay = serde_json::from_str("\"EOD\"").unwrap();
         let bod: SnapshotTimeOfDay = serde_json::from_str("\"BOD\"").unwrap();
-        
+
         assert!(matches!(eod, SnapshotTimeOfDay::EOD));
         assert!(matches!(bod, SnapshotTimeOfDay::BOD));
     }
@@ -546,13 +567,28 @@ mod tests {
         });
 
         let balance: Balance = serde_json::from_value(json).unwrap();
-        
+
         // Test high precision preservation
-        assert_eq!(balance.cash_balance, Decimal::from_str("12345.123456789").unwrap());
-        assert_eq!(balance.long_equity_value, Decimal::from_str("98765.987654321").unwrap());
-        assert_eq!(balance.short_equity_value, Decimal::from_str("0.000000001").unwrap());
-        assert_eq!(balance.net_liquidating_value, Decimal::from_str("123456.123456789").unwrap());
-        assert_eq!(balance.pending_margin_interest, Decimal::from_str("1.234567890").unwrap());
+        assert_eq!(
+            balance.cash_balance,
+            Decimal::from_str("12345.123456789").unwrap()
+        );
+        assert_eq!(
+            balance.long_equity_value,
+            Decimal::from_str("98765.987654321").unwrap()
+        );
+        assert_eq!(
+            balance.short_equity_value,
+            Decimal::from_str("0.000000001").unwrap()
+        );
+        assert_eq!(
+            balance.net_liquidating_value,
+            Decimal::from_str("123456.123456789").unwrap()
+        );
+        assert_eq!(
+            balance.pending_margin_interest,
+            Decimal::from_str("1.234567890").unwrap()
+        );
     }
 
     // Note: We can't easily test the selection logic without mocking the HTTP calls

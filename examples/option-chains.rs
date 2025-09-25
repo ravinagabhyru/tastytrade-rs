@@ -1,9 +1,9 @@
-use std::process;
-use std::collections::HashMap;
-use std::time::Duration;
-use tastytrade_rs::TastyTrade;
-use tastytrade_rs::api::quote_streaming::{GreeksData, QuoteData, StreamerEventData};
 use rust_decimal::prelude::*;
+use std::collections::HashMap;
+use std::process;
+use std::time::Duration;
+use tastytrade_rs::api::quote_streaming::{GreeksData, QuoteData, StreamerEventData};
+use tastytrade_rs::TastyTrade;
 
 #[tokio::main]
 async fn main() {
@@ -58,11 +58,15 @@ async fn main() {
                         strike_min = min_str.parse().ok();
                         strike_max = max_str.parse().ok();
                         if strike_min.is_none() || strike_max.is_none() {
-                            eprintln!("Error: Invalid strike range format. Use: --strike-range 100-200");
+                            eprintln!(
+                                "Error: Invalid strike range format. Use: --strike-range 100-200"
+                            );
                             process::exit(1);
                         }
                     } else {
-                        eprintln!("Error: Invalid strike range format. Use: --strike-range 100-200");
+                        eprintln!(
+                            "Error: Invalid strike range format. Use: --strike-range 100-200"
+                        );
                         process::exit(1);
                     }
                     i += 2;
@@ -125,7 +129,8 @@ async fn main() {
     println!();
 
     // Initialize streaming data storage
-    let mut streaming_data: HashMap<String, (Option<QuoteData>, Option<GreeksData>)> = HashMap::new();
+    let mut streaming_data: HashMap<String, (Option<QuoteData>, Option<GreeksData>)> =
+        HashMap::new();
 
     // Fetch nested option chain
     let chain = match tasty.nested_option_chain_for(&symbol).await {
@@ -167,7 +172,10 @@ async fn main() {
         let mut option_symbols = Vec::new();
         let mut symbol_mapping = HashMap::new(); // streamer_symbol -> regular_symbol
 
-        println!("Converting {} option symbols to DxLink format...", regular_symbols.len());
+        println!(
+            "Converting {} option symbols to DxLink format...",
+            regular_symbols.len()
+        );
         for (i, symbol) in regular_symbols.iter().enumerate() {
             if i % 10 == 0 && i > 0 {
                 println!("Processed {}/{} symbols...", i, regular_symbols.len());
@@ -179,12 +187,18 @@ async fn main() {
                     symbol_mapping.insert(option_info.streamer_symbol.0.clone(), symbol.clone());
                 }
                 Err(e) => {
-                    println!("Warning: Failed to get streamer symbol for {}: {}", symbol, e);
+                    println!(
+                        "Warning: Failed to get streamer symbol for {}: {}",
+                        symbol, e
+                    );
                 }
             }
         }
 
-        println!("Successfully converted {} symbols to DxLink format", option_symbols.len());
+        println!(
+            "Successfully converted {} symbols to DxLink format",
+            option_symbols.len()
+        );
 
         if !option_symbols.is_empty() {
             println!("Connecting to streaming service...");
@@ -196,18 +210,21 @@ async fn main() {
                             println!("Subscribing to {} option symbols...", option_symbols.len());
 
                             // Subscribe to both quotes and Greeks
-                            if let Err(e) = streamer.subscribe_quotes(channel_id, &option_symbols).await {
+                            if let Err(e) =
+                                streamer.subscribe_quotes(channel_id, &option_symbols).await
+                            {
                                 println!("Warning: Failed to subscribe to quotes: {}", e);
                             }
 
-                            if let Err(e) = streamer.subscribe_greeks(channel_id, &option_symbols).await {
+                            if let Err(e) =
+                                streamer.subscribe_greeks(channel_id, &option_symbols).await
+                            {
                                 println!("Warning: Failed to subscribe to Greeks: {}", e);
                             }
 
                             println!("Collecting market data for 30 seconds...");
                             let timeout = tokio::time::sleep(Duration::from_secs(30));
                             tokio::pin!(timeout);
-
 
                             loop {
                                 tokio::select! {
@@ -259,10 +276,9 @@ async fn main() {
 
     // Now display the option chain WITH the collected streaming data
     println!("\n=== Options Chain Display ===");
-    println!("Underlying: {} | Root: {} | Type: {}",
-        chain.underlying_symbol.0,
-        chain.root_symbol.0,
-        chain.option_chain_type
+    println!(
+        "Underlying: {} | Root: {} | Type: {}",
+        chain.underlying_symbol.0, chain.root_symbol.0, chain.option_chain_type
     );
     println!("Shares per Contract: {}", chain.shares_per_contract);
     println!();
@@ -275,7 +291,8 @@ async fn main() {
             }
         }
 
-        println!("┌─ Expiration: {} ({} days) - {} Settlement ({})",
+        println!(
+            "┌─ Expiration: {} ({} days) - {} Settlement ({})",
             expiration.expiration_date,
             expiration.days_to_expiration,
             expiration.expiration_type,
@@ -303,12 +320,24 @@ async fn main() {
                 if let Some(greeks) = greeks_opt {
                     print!("│  │   └─ Greeks: ");
                     let mut parts = Vec::new();
-                    if let Some(delta) = greeks.delta { parts.push(format!("δ:{:.2}", delta)); }
-                    if let Some(gamma) = greeks.gamma { parts.push(format!("γ:{:.3}", gamma)); }
-                    if let Some(theta) = greeks.theta { parts.push(format!("θ:{:.2}", theta)); }
-                    if let Some(vega) = greeks.vega { parts.push(format!("ν:{:.2}", vega)); }
-                    if let Some(rho) = greeks.rho { parts.push(format!("ρ:{:.2}", rho)); }
-                    if let Some(iv) = greeks.volatility { parts.push(format!("IV:{:.1}%", iv * 100.0)); }
+                    if let Some(delta) = greeks.delta {
+                        parts.push(format!("δ:{:.2}", delta));
+                    }
+                    if let Some(gamma) = greeks.gamma {
+                        parts.push(format!("γ:{:.3}", gamma));
+                    }
+                    if let Some(theta) = greeks.theta {
+                        parts.push(format!("θ:{:.2}", theta));
+                    }
+                    if let Some(vega) = greeks.vega {
+                        parts.push(format!("ν:{:.2}", vega));
+                    }
+                    if let Some(rho) = greeks.rho {
+                        parts.push(format!("ρ:{:.2}", rho));
+                    }
+                    if let Some(iv) = greeks.volatility {
+                        parts.push(format!("IV:{:.1}%", iv * 100.0));
+                    }
                     if parts.is_empty() {
                         println!("No data");
                     } else {
@@ -328,12 +357,24 @@ async fn main() {
                 if let Some(greeks) = greeks_opt {
                     print!("│      └─ Greeks: ");
                     let mut parts = Vec::new();
-                    if let Some(delta) = greeks.delta { parts.push(format!("δ:{:.2}", delta)); }
-                    if let Some(gamma) = greeks.gamma { parts.push(format!("γ:{:.3}", gamma)); }
-                    if let Some(theta) = greeks.theta { parts.push(format!("θ:{:.2}", theta)); }
-                    if let Some(vega) = greeks.vega { parts.push(format!("ν:{:.2}", vega)); }
-                    if let Some(rho) = greeks.rho { parts.push(format!("ρ:{:.2}", rho)); }
-                    if let Some(iv) = greeks.volatility { parts.push(format!("IV:{:.1}%", iv * 100.0)); }
+                    if let Some(delta) = greeks.delta {
+                        parts.push(format!("δ:{:.2}", delta));
+                    }
+                    if let Some(gamma) = greeks.gamma {
+                        parts.push(format!("γ:{:.3}", gamma));
+                    }
+                    if let Some(theta) = greeks.theta {
+                        parts.push(format!("θ:{:.2}", theta));
+                    }
+                    if let Some(vega) = greeks.vega {
+                        parts.push(format!("ν:{:.2}", vega));
+                    }
+                    if let Some(rho) = greeks.rho {
+                        parts.push(format!("ρ:{:.2}", rho));
+                    }
+                    if let Some(iv) = greeks.volatility {
+                        parts.push(format!("IV:{:.1}%", iv * 100.0));
+                    }
                     if parts.is_empty() {
                         println!("No data");
                     } else {
@@ -341,7 +382,6 @@ async fn main() {
                     }
                 }
             }
-
         }
     }
 

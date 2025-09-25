@@ -39,12 +39,12 @@ mod tests {
 
         let json = serde_json::to_string(&credentials).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-        
+
         // Test that keys are kebab-case
         assert_eq!(parsed["login"], "testuser");
         assert_eq!(parsed["password"], "testpass");
         assert_eq!(parsed["remember-me"], true);
-        
+
         // Ensure no secrets are accidentally logged by checking the structure
         // (This is a compile-time check - LoginCredentials should not derive Debug in production)
         assert!(json.contains("testuser"));
@@ -62,7 +62,7 @@ mod tests {
 
         let json = serde_json::to_string(&credentials).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(parsed["login"], "user@example.com");
         assert_eq!(parsed["password"], "secret123");
         assert_eq!(parsed["remember-me"], false);
@@ -140,7 +140,10 @@ mod tests {
         assert_eq!(response.user.username, "kebabuser");
         assert_eq!(response.user.external_id, "kebab-ext-123");
         assert_eq!(response.session_token, "kebab-session-token");
-        assert_eq!(response.remember_token, Some("kebab-remember-token".to_string()));
+        assert_eq!(
+            response.remember_token,
+            Some("kebab-remember-token".to_string())
+        );
     }
 
     #[test]

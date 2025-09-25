@@ -6,7 +6,7 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 use crate::{
     api::accounts::{Account, Balance},
-    api::base::Result, 
+    api::base::Result,
     TastyTrade,
 };
 
@@ -202,19 +202,34 @@ impl TastyTrade {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
-    use crate::api::order::{OrderStatus, InstrumentType};
+    use crate::api::order::{InstrumentType, OrderStatus};
     use rust_decimal::Decimal;
+    use serde_json::json;
     use std::str::FromStr;
 
     #[test]
     fn test_sub_request_action_serialization() {
         // Test serialization of all variants (they use kebab-case)
-        assert_eq!(serde_json::to_string(&SubRequestAction::Heartbeat).unwrap(), "\"heartbeat\"");
-        assert_eq!(serde_json::to_string(&SubRequestAction::Connect).unwrap(), "\"connect\"");
-        assert_eq!(serde_json::to_string(&SubRequestAction::PublicWatchlistsSubscribe).unwrap(), "\"public-watchlists-subscribe\"");
-        assert_eq!(serde_json::to_string(&SubRequestAction::QuoteAlertsSubscribe).unwrap(), "\"quote-alerts-subscribe\"");
-        assert_eq!(serde_json::to_string(&SubRequestAction::UserMessageSubscribe).unwrap(), "\"user-message-subscribe\"");
+        assert_eq!(
+            serde_json::to_string(&SubRequestAction::Heartbeat).unwrap(),
+            "\"heartbeat\""
+        );
+        assert_eq!(
+            serde_json::to_string(&SubRequestAction::Connect).unwrap(),
+            "\"connect\""
+        );
+        assert_eq!(
+            serde_json::to_string(&SubRequestAction::PublicWatchlistsSubscribe).unwrap(),
+            "\"public-watchlists-subscribe\""
+        );
+        assert_eq!(
+            serde_json::to_string(&SubRequestAction::QuoteAlertsSubscribe).unwrap(),
+            "\"quote-alerts-subscribe\""
+        );
+        assert_eq!(
+            serde_json::to_string(&SubRequestAction::UserMessageSubscribe).unwrap(),
+            "\"user-message-subscribe\""
+        );
     }
 
     #[test]
@@ -230,7 +245,7 @@ mod tests {
 
         // Test kebab-case field names
         assert_eq!(parsed["auth-token"], "test_token");
-        assert_eq!(parsed["action"], "connect");  // Action is also kebab-case
+        assert_eq!(parsed["action"], "connect"); // Action is also kebab-case
         assert_eq!(parsed["value"], "test_value");
     }
 
@@ -246,7 +261,7 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
 
         assert_eq!(parsed["auth-token"], "heartbeat_token");
-        assert_eq!(parsed["action"], "heartbeat");  // Action is kebab-case
+        assert_eq!(parsed["action"], "heartbeat"); // Action is kebab-case
         assert!(parsed["value"].is_null());
     }
 
@@ -309,7 +324,7 @@ mod tests {
                 assert_eq!(order.id.0, 123456);
                 assert_eq!(order.account_number.0, "ACC123");
                 assert!(matches!(order.status, OrderStatus::Live));
-            },
+            }
             _ => panic!("Expected Order variant"),
         }
     }
@@ -358,8 +373,11 @@ mod tests {
             AccountMessage::AccountBalance(balance) => {
                 assert_eq!(balance.account_number.0, "ACC456");
                 assert_eq!(balance.cash_balance, Decimal::from_str("10000.50").unwrap());
-                assert_eq!(balance.net_liquidating_value, Decimal::from_str("39000.50").unwrap());
-            },
+                assert_eq!(
+                    balance.net_liquidating_value,
+                    Decimal::from_str("39000.50").unwrap()
+                );
+            }
             _ => panic!("Expected AccountBalance variant"),
         }
     }
@@ -396,7 +414,7 @@ mod tests {
                 assert_eq!(position.symbol.0, "SPY");
                 assert_eq!(position.quantity, Decimal::from_str("100.00").unwrap());
                 assert!(matches!(position.instrument_type, InstrumentType::Equity));
-            },
+            }
             _ => panic!("Expected CurrentPosition variant"),
         }
     }
@@ -433,7 +451,7 @@ mod tests {
             AccountEvent::StatusMessage(status) => {
                 assert_eq!(status.status, "ok");
                 assert_eq!(status.action, "heartbeat");
-            },
+            }
             _ => panic!("Expected StatusMessage variant"),
         }
 
@@ -450,7 +468,7 @@ mod tests {
             AccountEvent::ErrorMessage(error) => {
                 assert_eq!(error.status, "error");
                 assert_eq!(error.message, "Authentication failed");
-            },
+            }
             _ => panic!("Expected ErrorMessage variant"),
         }
 
@@ -463,7 +481,7 @@ mod tests {
         match event {
             AccountEvent::AccountMessage(msg) => {
                 assert!(matches!(msg.as_ref(), AccountMessage::OrderChain));
-            },
+            }
             _ => panic!("Expected AccountMessage variant"),
         }
     }
@@ -474,7 +492,7 @@ mod tests {
         // StatusMessage has request_id but no message
         let status_json = json!({
             "status": "connected",
-            "action": "connect", 
+            "action": "connect",
             "web-socket-session-id": "sess1",
             "request-id": 123
         });

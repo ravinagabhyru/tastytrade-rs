@@ -15,7 +15,7 @@ pub enum TastyApiResponse<T> {
 #[derive(Debug, Deserialize)]
 pub struct Response<T> {
     pub data: T,
-    pub context: String,
+    pub context: Option<String>,
     pub pagination: Option<Pagination>,
 }
 
@@ -77,6 +77,8 @@ pub enum TastyError {
     // DxFeed(#[from] crate::quote_streamer::DxFeedError),
     #[error("Websocket Error")]
     Websocket(#[from] tokio_tungstenite::tungstenite::Error),
+    #[error("Unexpected response (status {status}): {body}")]
+    UnexpectedResponse { status: u16, body: String },
 }
 
 pub type Result<T> = std::result::Result<T, TastyError>;
@@ -106,17 +108,17 @@ mod tests {
         });
 
         let response: TastyApiResponse<serde_json::Value> = serde_json::from_value(json).unwrap();
-        
+
         match response {
             TastyApiResponse::Success(resp) => {
                 assert_eq!(resp.data["test"], "value");
-                assert_eq!(resp.context, "test");
+                assert_eq!(resp.context, Some("test".to_string()));
                 assert!(resp.pagination.is_some());
                 let pagination = resp.pagination.unwrap();
                 assert_eq!(pagination.per_page, 10);
                 assert_eq!(pagination.total_items, 100);
                 assert_eq!(pagination.next_link, Some("/next".to_string()));
-            },
+            }
             _ => panic!("Expected Success variant"),
         }
     }
@@ -131,13 +133,13 @@ mod tests {
         });
 
         let response: TastyApiResponse<serde_json::Value> = serde_json::from_value(json).unwrap();
-        
+
         match response {
             TastyApiResponse::Error { error } => {
                 assert_eq!(error.code, Some("TEST_ERROR".to_string()));
                 assert_eq!(error.message, "Test error message");
                 assert!(error.errors.is_none());
-            },
+            }
             _ => panic!("Expected Error variant"),
         }
     }
@@ -162,20 +164,20 @@ mod tests {
         });
 
         let response: TastyApiResponse<serde_json::Value> = serde_json::from_value(json).unwrap();
-        
+
         match response {
             TastyApiResponse::Error { error } => {
                 assert_eq!(error.code, Some("VALIDATION_ERROR".to_string()));
                 assert_eq!(error.message, "Validation failed");
                 assert!(error.errors.is_some());
-                
+
                 let errors = error.errors.unwrap();
                 assert_eq!(errors.len(), 2);
                 assert_eq!(errors[0].code, Some("FIELD_ERROR".to_string()));
                 assert_eq!(errors[0].message, "Field is required");
                 assert_eq!(errors[1].code, None);
                 assert_eq!(errors[1].message, "Another error");
-            },
+            }
             _ => panic!("Expected Error variant"),
         }
     }
@@ -187,7 +189,7 @@ mod tests {
             message: "msg".to_string(),
             errors: None,
         };
-        
+
         assert_eq!(format!("{}", error), "Error Some(\"X\"): msg");
     }
 
@@ -198,7 +200,7 @@ mod tests {
             message: "msg".to_string(),
             errors: None,
         };
-        
+
         assert_eq!(format!("{}", error), "Error None: msg");
     }
 
@@ -206,7 +208,7 @@ mod tests {
     fn test_from_tasty_response_for_t() {
         let response = Response {
             data: "test_data".to_string(),
-            context: "test".to_string(),
+            context: Some("test".to_string()),
             pagination: None,
         };
 
@@ -219,7 +221,7 @@ mod tests {
         let items = Items {
             items: vec!["item1".to_string(), "item2".to_string()],
         };
-        
+
         let pagination = Pagination {
             per_page: 10,
             page_offset: 0,
@@ -234,7 +236,7 @@ mod tests {
 
         let response = Response {
             data: items,
-            context: "test".to_string(),
+            context: Some("test".to_string()),
             pagination: Some(pagination),
         };
 
@@ -254,8 +256,8 @@ mod tests {
 
         let response = Response {
             data: items,
-            context: "test".to_string(),
-            pagination: None,  // Missing pagination should cause panic
+            context: Some("test".to_string()),
+            pagination: None, // Missing pagination should cause panic
         };
 
         let _result = Paginated::<String>::from_tasty(response);
@@ -278,8 +280,25 @@ mod tests {
         }
 
         let items: Items<TestItem> = serde_json::from_value(json).unwrap();
-        assert_eq!(items.items.len(), 2);  // Invalid item was skipped
+        assert_eq!(items.items.len(), 2); // Invalid item was skipped
         assert_eq!(items.items[0].valid, true);
         assert_eq!(items.items[1].valid, false);
+    }
+    #[test]
+    fn test_success_without_context() {
+        let json = json!({
+            "data": {"test": "value"},
+            "pagination": null
+        });
+
+        let response: TastyApiResponse<serde_json::Value> = serde_json::from_value(json).unwrap();
+
+        match response {
+            TastyApiResponse::Success(resp) => {
+                assert!(resp.context.is_none());
+                assert!(resp.pagination.is_none());
+            }
+            _ => panic!("Expected Success variant"),
+        }
     }
 }

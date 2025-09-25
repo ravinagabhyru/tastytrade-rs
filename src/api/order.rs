@@ -253,8 +253,8 @@ pub struct Warning {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
     use rust_decimal::Decimal;
+    use serde_json::json;
     use std::str::FromStr;
 
     #[test]
@@ -298,68 +298,158 @@ mod tests {
     #[test]
     fn test_action_serde() {
         // Test all renamed variants
-        assert_eq!(serde_json::to_string(&Action::BuyToOpen).unwrap(), "\"Buy to Open\"");
-        assert_eq!(serde_json::to_string(&Action::SellToOpen).unwrap(), "\"Sell to Open\"");
-        assert_eq!(serde_json::to_string(&Action::BuyToClose).unwrap(), "\"Buy to Close\"");
-        assert_eq!(serde_json::to_string(&Action::SellToClose).unwrap(), "\"Sell to Close\"");
+        assert_eq!(
+            serde_json::to_string(&Action::BuyToOpen).unwrap(),
+            "\"Buy to Open\""
+        );
+        assert_eq!(
+            serde_json::to_string(&Action::SellToOpen).unwrap(),
+            "\"Sell to Open\""
+        );
+        assert_eq!(
+            serde_json::to_string(&Action::BuyToClose).unwrap(),
+            "\"Buy to Close\""
+        );
+        assert_eq!(
+            serde_json::to_string(&Action::SellToClose).unwrap(),
+            "\"Sell to Close\""
+        );
         assert_eq!(serde_json::to_string(&Action::Buy).unwrap(), "\"Buy\"");
         assert_eq!(serde_json::to_string(&Action::Sell).unwrap(), "\"Sell\"");
 
         // Test deserialization
-        assert!(matches!(serde_json::from_str::<Action>("\"Buy to Open\"").unwrap(), Action::BuyToOpen));
-        assert!(matches!(serde_json::from_str::<Action>("\"Sell to Close\"").unwrap(), Action::SellToClose));
+        assert!(matches!(
+            serde_json::from_str::<Action>("\"Buy to Open\"").unwrap(),
+            Action::BuyToOpen
+        ));
+        assert!(matches!(
+            serde_json::from_str::<Action>("\"Sell to Close\"").unwrap(),
+            Action::SellToClose
+        ));
     }
 
     #[test]
     fn test_instrument_type_serde() {
-        assert_eq!(serde_json::to_string(&InstrumentType::Equity).unwrap(), "\"Equity\"");
-        assert_eq!(serde_json::to_string(&InstrumentType::EquityOption).unwrap(), "\"Equity Option\"");
-        assert_eq!(serde_json::to_string(&InstrumentType::EquityOffering).unwrap(), "\"Equity Offering\"");
-        assert_eq!(serde_json::to_string(&InstrumentType::Future).unwrap(), "\"Future\"");
-        assert_eq!(serde_json::to_string(&InstrumentType::FutureOption).unwrap(), "\"Future Option\"");
-        assert_eq!(serde_json::to_string(&InstrumentType::Cryptocurrency).unwrap(), "\"Cryptocurrency\"");
+        assert_eq!(
+            serde_json::to_string(&InstrumentType::Equity).unwrap(),
+            "\"Equity\""
+        );
+        assert_eq!(
+            serde_json::to_string(&InstrumentType::EquityOption).unwrap(),
+            "\"Equity Option\""
+        );
+        assert_eq!(
+            serde_json::to_string(&InstrumentType::EquityOffering).unwrap(),
+            "\"Equity Offering\""
+        );
+        assert_eq!(
+            serde_json::to_string(&InstrumentType::Future).unwrap(),
+            "\"Future\""
+        );
+        assert_eq!(
+            serde_json::to_string(&InstrumentType::FutureOption).unwrap(),
+            "\"Future Option\""
+        );
+        assert_eq!(
+            serde_json::to_string(&InstrumentType::Cryptocurrency).unwrap(),
+            "\"Cryptocurrency\""
+        );
 
         // Test deserialization
-        assert!(matches!(serde_json::from_str::<InstrumentType>("\"Equity Option\"").unwrap(), InstrumentType::EquityOption));
-        assert!(matches!(serde_json::from_str::<InstrumentType>("\"Future Option\"").unwrap(), InstrumentType::FutureOption));
+        assert!(matches!(
+            serde_json::from_str::<InstrumentType>("\"Equity Option\"").unwrap(),
+            InstrumentType::EquityOption
+        ));
+        assert!(matches!(
+            serde_json::from_str::<InstrumentType>("\"Future Option\"").unwrap(),
+            InstrumentType::FutureOption
+        ));
     }
 
     #[test]
     fn test_order_type_serde() {
-        assert_eq!(serde_json::to_string(&OrderType::Limit).unwrap(), "\"Limit\"");
-        assert_eq!(serde_json::to_string(&OrderType::Market).unwrap(), "\"Market\"");
-        assert_eq!(serde_json::to_string(&OrderType::MarketableLimit).unwrap(), "\"Marketable Limit\"");
+        assert_eq!(
+            serde_json::to_string(&OrderType::Limit).unwrap(),
+            "\"Limit\""
+        );
+        assert_eq!(
+            serde_json::to_string(&OrderType::Market).unwrap(),
+            "\"Market\""
+        );
+        assert_eq!(
+            serde_json::to_string(&OrderType::MarketableLimit).unwrap(),
+            "\"Marketable Limit\""
+        );
         assert_eq!(serde_json::to_string(&OrderType::Stop).unwrap(), "\"Stop\"");
-        assert_eq!(serde_json::to_string(&OrderType::StopLimit).unwrap(), "\"Stop Limit\"");
-        assert_eq!(serde_json::to_string(&OrderType::NotionalMarket).unwrap(), "\"Notional Market\"");
+        assert_eq!(
+            serde_json::to_string(&OrderType::StopLimit).unwrap(),
+            "\"Stop Limit\""
+        );
+        assert_eq!(
+            serde_json::to_string(&OrderType::NotionalMarket).unwrap(),
+            "\"Notional Market\""
+        );
 
         // Test deserialization
-        assert!(matches!(serde_json::from_str::<OrderType>("\"Marketable Limit\"").unwrap(), OrderType::MarketableLimit));
-        assert!(matches!(serde_json::from_str::<OrderType>("\"Stop Limit\"").unwrap(), OrderType::StopLimit));
+        assert!(matches!(
+            serde_json::from_str::<OrderType>("\"Marketable Limit\"").unwrap(),
+            OrderType::MarketableLimit
+        ));
+        assert!(matches!(
+            serde_json::from_str::<OrderType>("\"Stop Limit\"").unwrap(),
+            OrderType::StopLimit
+        ));
     }
 
     #[test]
     fn test_time_in_force_serde() {
         assert_eq!(serde_json::to_string(&TimeInForce::Day).unwrap(), "\"Day\"");
         assert_eq!(serde_json::to_string(&TimeInForce::GTC).unwrap(), "\"GTC\"");
-        assert_eq!(serde_json::to_string(&TimeInForce::GTCExt).unwrap(), "\"GTC Ext\"");
+        assert_eq!(
+            serde_json::to_string(&TimeInForce::GTCExt).unwrap(),
+            "\"GTC Ext\""
+        );
         assert_eq!(serde_json::to_string(&TimeInForce::IOC).unwrap(), "\"IOC\"");
 
         // Test deserialization
-        assert!(matches!(serde_json::from_str::<TimeInForce>("\"GTC Ext\"").unwrap(), TimeInForce::GTCExt));
+        assert!(matches!(
+            serde_json::from_str::<TimeInForce>("\"GTC Ext\"").unwrap(),
+            TimeInForce::GTCExt
+        ));
     }
 
     #[test]
     fn test_order_status_serde() {
-        assert_eq!(serde_json::to_string(&OrderStatus::Received).unwrap(), "\"Received\"");
-        assert_eq!(serde_json::to_string(&OrderStatus::InFlight).unwrap(), "\"In Flight\"");
-        assert_eq!(serde_json::to_string(&OrderStatus::CancelRequested).unwrap(), "\"Cancel Requested\"");
-        assert_eq!(serde_json::to_string(&OrderStatus::ReplaceRequested).unwrap(), "\"Replace Requested\"");
-        assert_eq!(serde_json::to_string(&OrderStatus::PartiallyRemoved).unwrap(), "\"Partially Removed\"");
+        assert_eq!(
+            serde_json::to_string(&OrderStatus::Received).unwrap(),
+            "\"Received\""
+        );
+        assert_eq!(
+            serde_json::to_string(&OrderStatus::InFlight).unwrap(),
+            "\"In Flight\""
+        );
+        assert_eq!(
+            serde_json::to_string(&OrderStatus::CancelRequested).unwrap(),
+            "\"Cancel Requested\""
+        );
+        assert_eq!(
+            serde_json::to_string(&OrderStatus::ReplaceRequested).unwrap(),
+            "\"Replace Requested\""
+        );
+        assert_eq!(
+            serde_json::to_string(&OrderStatus::PartiallyRemoved).unwrap(),
+            "\"Partially Removed\""
+        );
 
         // Test deserialization
-        assert!(matches!(serde_json::from_str::<OrderStatus>("\"In Flight\"").unwrap(), OrderStatus::InFlight));
-        assert!(matches!(serde_json::from_str::<OrderStatus>("\"Cancel Requested\"").unwrap(), OrderStatus::CancelRequested));
+        assert!(matches!(
+            serde_json::from_str::<OrderStatus>("\"In Flight\"").unwrap(),
+            OrderStatus::InFlight
+        ));
+        assert!(matches!(
+            serde_json::from_str::<OrderStatus>("\"Cancel Requested\"").unwrap(),
+            OrderStatus::CancelRequested
+        ));
     }
 
     #[test]
@@ -373,7 +463,7 @@ mod tests {
 
         let json = serde_json::to_string(&leg).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-        
+
         // Verify quantity is serialized as a float, not a string
         assert_eq!(parsed["quantity"], 100.5);
     }
@@ -391,12 +481,18 @@ mod tests {
 
         let json = serde_json::to_string(&order).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-        
+
         // Verify price is serialized correctly (may be string or number based on serde config)
         // The important part is that the precision is preserved
-        let price_val = parsed["price"].as_str()
+        let price_val = parsed["price"]
+            .as_str()
             .map(|s| Decimal::from_str(s).unwrap())
-            .or_else(|| parsed["price"].as_f64().map(Decimal::try_from).map(|r| r.unwrap()))
+            .or_else(|| {
+                parsed["price"]
+                    .as_f64()
+                    .map(Decimal::try_from)
+                    .map(|r| r.unwrap())
+            })
             .unwrap();
         assert_eq!(price_val, Decimal::from_str("123.456789").unwrap());
     }
@@ -487,18 +583,24 @@ mod tests {
         // Verify the order was built correctly
         let json = serde_json::to_string(&order).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(parsed["time-in-force"], "Day");
         assert_eq!(parsed["order-type"], "Market");
         // Price may be serialized as number or string - check the value
-        let price_val = parsed["price"].as_str()
+        let price_val = parsed["price"]
+            .as_str()
             .map(|s| Decimal::from_str(s).unwrap())
-            .or_else(|| parsed["price"].as_f64().map(Decimal::try_from).map(|r| r.unwrap()))
+            .or_else(|| {
+                parsed["price"]
+                    .as_f64()
+                    .map(Decimal::try_from)
+                    .map(|r| r.unwrap())
+            })
             .unwrap();
         assert_eq!(price_val, Decimal::ZERO);
         assert_eq!(parsed["price-effect"], "Debit");
         assert_eq!(parsed["legs"].as_array().unwrap().len(), 1);
-        
+
         let leg_json = &parsed["legs"][0];
         assert_eq!(leg_json["instrument-type"], "Equity");
         assert_eq!(leg_json["symbol"], "TSLA");
@@ -527,17 +629,23 @@ mod tests {
 
         let json = serde_json::to_string(&order).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(parsed["time-in-force"], "GTC");
         assert_eq!(parsed["order-type"], "Limit");
         // Price may be serialized as number or string - check the value
-        let price_val = parsed["price"].as_str()
+        let price_val = parsed["price"]
+            .as_str()
             .map(|s| Decimal::from_str(s).unwrap())
-            .or_else(|| parsed["price"].as_f64().map(Decimal::try_from).map(|r| r.unwrap()))
+            .or_else(|| {
+                parsed["price"]
+                    .as_f64()
+                    .map(Decimal::try_from)
+                    .map(|r| r.unwrap())
+            })
             .unwrap();
         assert_eq!(price_val, Decimal::from_str("5.50").unwrap());
         assert_eq!(parsed["price-effect"], "Debit");
-        
+
         let leg_json = &parsed["legs"][0];
         assert_eq!(leg_json["instrument-type"], "Equity Option");
         assert_eq!(leg_json["symbol"], "AAPL  240315C00185000");
@@ -581,12 +689,12 @@ mod tests {
     #[test]
     fn test_symbol_hash() {
         use std::collections::HashSet;
-        
+
         let mut set = HashSet::new();
         set.insert(Symbol::from("AAPL"));
         set.insert(Symbol::from("AAPL")); // Duplicate
         set.insert(Symbol::from("MSFT"));
-        
+
         assert_eq!(set.len(), 2); // Duplicates are not added
         assert!(set.contains(&Symbol::from("AAPL")));
         assert!(set.contains(&Symbol::from("MSFT")));

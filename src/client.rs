@@ -13,8 +13,7 @@ use crate::api::base::Paginated;
 use crate::api::base::Response;
 use crate::api::base::Result;
 use crate::api::base::TastyApiResponse;
-
-// use crate::api::base::TastyError;
+use crate::api::base::TastyError;
 use crate::api::login::LoginCredentials;
 use crate::api::login::LoginResponse;
 
@@ -137,22 +136,55 @@ impl TastyTrade {
     {
         let url = format!("{}{}", self.base_url, url.as_ref());
 
-        let result = self
-            .client
-            .get(url)
-            .query(query)
-            .send()
-            .await?
-            // .inspect_json::<TastyApiResponse<T>, TastyError>(move |text| {
-            // println!("{:?}", std::any::type_name::<T>());
-            // println!("{text}");
-            // })
-            .json::<TastyApiResponse<T>>()
-            .await?;
+        let response = self.client.get(&url).query(query).send().await?;
+        let status = response.status();
+        let text = response.text().await?;
+
+        tracing::debug!(
+            "tastytrade GET {} status={} body={}",
+            url,
+            status.as_u16(),
+            text
+        );
+
+        let result: TastyApiResponse<T> = match serde_json::from_str(&text) {
+            Ok(parsed) => parsed,
+            Err(err) => {
+                tracing::error!(
+                    error = %err,
+                    "failed to parse response for {} (status {}): {}",
+                    url,
+                    status,
+                    text
+                );
+                return Err(TastyError::UnexpectedResponse {
+                    status: status.as_u16(),
+                    body: text,
+                });
+            }
+        };
+
+        if !status.is_success() {
+            tracing::warn!(
+                status = %status,
+                url = %url,
+                body = %text,
+                "received non-success HTTP status from tastytrade"
+            );
+        }
 
         match result {
             TastyApiResponse::Success(s) => Ok(R::from_tasty(s)),
-            TastyApiResponse::Error { error } => Err(error.into()),
+            TastyApiResponse::Error { error } => {
+                tracing::error!(
+                    code = ?error.code,
+                    message = %error.message,
+                    status = %status,
+                    body = %text,
+                    "tastytrade API returned error"
+                );
+                Err(error.into())
+            }
         }
     }
 

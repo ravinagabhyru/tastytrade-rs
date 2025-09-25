@@ -35,6 +35,9 @@ cargo run --example accounts-status <username> <password> <demo/live>
 # Real-time quote streaming
 cargo run --example quote-streaming <username> <password> [live]
 
+# REST market data snapshot with nearest strikes
+cargo run --example market-data <username> <password> <demo/live> <symbol>
+
 # Options chains with live Greeks data
 cargo run --example option-chains <username> <password> <demo/live> <symbol> [options]
 ```
@@ -58,6 +61,14 @@ cargo run --example option-chains myuser mypass demo SPX --strike-range 6590-662
 - `--strike-range min-max` - Filter by strike price range
 - `--max-dte days` - Filter by maximum days to expiration
 - `--with-streaming` - Fetch live quotes and Greeks via DxLink
+
+#### Market Data Example
+
+The market data example calls the REST `/market-data/by-type` endpoint to retrieve the underlying quote along with a five-strike window (calls and puts) around the nearest expiration.
+
+```bash
+cargo run --example market-data myuser mypass demo AAPL
+```
 
 # Library Usage Example
 

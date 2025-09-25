@@ -1,8 +1,8 @@
 use dxlink_rs::feed::FeedContract;
 use std::process;
 use std::time::Duration;
-use tastytrade_rs::TastyTrade;
 use tastytrade_rs::api::quote_streaming::StreamerEventData;
+use tastytrade_rs::TastyTrade;
 
 use tokio::time;
 use tracing::{error, info};

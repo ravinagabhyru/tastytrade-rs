@@ -22,15 +22,16 @@ impl TastyTrade {
         let mut resp: Items<NestedOptionChain> = self
             .get(format!("/option-chains/{}/nested", symbol.0))
             .await?;
-        
+
         if resp.items.is_empty() {
             return Err(crate::api::base::ApiError {
                 message: format!("No option chain found for symbol: {}", symbol.0),
                 code: None,
                 errors: None,
-            }.into());
+            }
+            .into());
         }
-        
+
         Ok(resp.items.remove(0))
     }
 
@@ -98,8 +99,8 @@ pub struct OptionChain {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
     use rust_decimal::Decimal;
+    use serde_json::json;
     use std::str::FromStr;
 
     #[test]
@@ -160,11 +161,17 @@ mod tests {
         assert_eq!(exp1.strikes.len(), 2);
 
         // Test strike prices with high precision
-        assert_eq!(exp1.strikes[0].strike_price, Decimal::from_str("150.00").unwrap());
+        assert_eq!(
+            exp1.strikes[0].strike_price,
+            Decimal::from_str("150.00").unwrap()
+        );
         assert_eq!(exp1.strikes[0].call.0, "AAPL  240119C00150000");
         assert_eq!(exp1.strikes[0].put.0, "AAPL  240119P00150000");
-        
-        assert_eq!(exp1.strikes[1].strike_price, Decimal::from_str("155.00").unwrap());
+
+        assert_eq!(
+            exp1.strikes[1].strike_price,
+            Decimal::from_str("155.00").unwrap()
+        );
         assert_eq!(exp1.strikes[1].call.0, "AAPL  240119C00155000");
         assert_eq!(exp1.strikes[1].put.0, "AAPL  240119P00155000");
 
@@ -175,7 +182,10 @@ mod tests {
         assert_eq!(exp2.days_to_expiration, 23);
         assert_eq!(exp2.settlement_type, "PM");
         assert_eq!(exp2.strikes.len(), 1);
-        assert_eq!(exp2.strikes[0].strike_price, Decimal::from_str("160.00").unwrap());
+        assert_eq!(
+            exp2.strikes[0].strike_price,
+            Decimal::from_str("160.00").unwrap()
+        );
     }
 
     #[test]
@@ -197,7 +207,7 @@ mod tests {
         let chain: OptionChain = serde_json::from_value(json).unwrap();
         assert_eq!(chain.underlying_symbol.0, "SPY");
         assert_eq!(chain.strike_price, Decimal::from_str("450.00").unwrap());
-        
+
         // Verify that extra fields are captured in the HashMap
         assert!(chain.extra.contains_key("volume"));
         assert!(chain.extra.contains_key("open-interest"));
@@ -207,7 +217,7 @@ mod tests {
         assert!(chain.extra.contains_key("theta"));
         assert!(chain.extra.contains_key("vega"));
         assert!(chain.extra.contains_key("custom-field"));
-        
+
         // Test that the values are correctly preserved
         assert_eq!(chain.extra["volume"], json!(1500));
         assert_eq!(chain.extra["open-interest"], json!(2500));
@@ -235,7 +245,10 @@ mod tests {
 
         let strike: Strike = serde_json::from_value(json).unwrap();
         // Test that arbitrary precision is preserved
-        assert_eq!(strike.strike_price, Decimal::from_str("123.456789012345").unwrap());
+        assert_eq!(
+            strike.strike_price,
+            Decimal::from_str("123.456789012345").unwrap()
+        );
         assert_eq!(strike.call.0, "TEST  240119C00123456");
         assert_eq!(strike.put.0, "TEST  240119P00123456");
     }
@@ -251,7 +264,10 @@ mod tests {
         let chain: OptionChain = serde_json::from_value(json).unwrap();
         assert_eq!(chain.underlying_symbol.0, "TEST");
         // Test that arbitrary precision is preserved for strike_price
-        assert_eq!(chain.strike_price, Decimal::from_str("999.123456789").unwrap());
+        assert_eq!(
+            chain.strike_price,
+            Decimal::from_str("999.123456789").unwrap()
+        );
         assert_eq!(chain.extra["extra-field"], json!("should-be-in-extra-map"));
     }
 
@@ -295,17 +311,26 @@ mod tests {
         assert_eq!(chain.root_symbol.0, "SPXW");
         assert_eq!(chain.option_chain_type, "Index");
         assert_eq!(chain.shares_per_contract, 1); // Index options typically have multiplier of 1
-        
+
         let exp = &chain.expirations[0];
         assert_eq!(exp.expiration_type, "AM");
         assert_eq!(exp.settlement_type, "AM");
         assert_eq!(exp.strikes.len(), 3);
-        
+
         // Test decimal precision for different strike prices
-        assert_eq!(exp.strikes[0].strike_price, Decimal::from_str("4500.00").unwrap());
-        assert_eq!(exp.strikes[1].strike_price, Decimal::from_str("4525.00").unwrap());
-        assert_eq!(exp.strikes[2].strike_price, Decimal::from_str("4550.50").unwrap());
-        
+        assert_eq!(
+            exp.strikes[0].strike_price,
+            Decimal::from_str("4500.00").unwrap()
+        );
+        assert_eq!(
+            exp.strikes[1].strike_price,
+            Decimal::from_str("4525.00").unwrap()
+        );
+        assert_eq!(
+            exp.strikes[2].strike_price,
+            Decimal::from_str("4550.50").unwrap()
+        );
+
         // Test symbol formatting
         assert_eq!(exp.strikes[2].call.0, "SPXW 240201C04550500");
         assert_eq!(exp.strikes[2].put.0, "SPXW 240201P04550500");
@@ -328,11 +353,11 @@ mod tests {
     #[test]
     fn test_dxfeed_symbol_serde() {
         let symbol = DxFeedSymbol("TEST123".to_string());
-        
+
         // Test serialization
         let serialized = serde_json::to_string(&symbol).unwrap();
         assert_eq!(serialized, "\"TEST123\"");
-        
+
         // Test deserialization
         let deserialized: DxFeedSymbol = serde_json::from_str("\"TEST123\"").unwrap();
         assert_eq!(deserialized.0, "TEST123");

@@ -4,6 +4,7 @@ pub mod base;
 pub mod event;
 pub mod instrument;
 pub mod login;
+pub mod market_data;
 pub mod option_chain;
 pub mod order;
 pub mod position;
