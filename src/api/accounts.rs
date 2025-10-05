@@ -9,6 +9,7 @@ use crate::client::TastyTrade;
 use super::base::{Items, Paginated};
 use super::order::{DryRunResult, LiveOrderRecord, Order, OrderId, OrderPlacedResult, PriceEffect};
 use super::position::FullPosition;
+use super::transaction::{TotalFees, Transaction, TransactionId, TransactionQueryParams};
 
 impl TastyTrade {
     pub async fn accounts(&self) -> Result<Vec<Account<'_>>> {
@@ -168,6 +169,63 @@ impl<'t> Account<'t> {
                 "/accounts/{}/orders/{}",
                 self.inner.account.account_number.0, id.0
             ))
+            .await
+    }
+
+    /// List transactions with optional filters
+    pub async fn transactions(
+        &self,
+        params: TransactionQueryParams,
+    ) -> Result<Paginated<Transaction>> {
+        params.validate()?;
+        let query_params = params.into_query();
+        let query_refs: Vec<(&str, &str)> = query_params
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
+
+        self.tasty
+            .get_with_query(
+                &format!(
+                    "/accounts/{}/transactions",
+                    self.inner.account.account_number.0
+                ),
+                &query_refs,
+            )
+            .await
+    }
+
+    /// Get a single transaction by ID
+    pub async fn transaction(&self, id: TransactionId) -> Result<Transaction> {
+        self.tasty
+            .get(&format!(
+                "/accounts/{}/transactions/{}",
+                self.inner.account.account_number.0, id.0
+            ))
+            .await
+    }
+
+    /// Get total fees for a specific date (defaults to today)
+    pub async fn total_fees(&self, date: Option<chrono::NaiveDate>) -> Result<TotalFees> {
+        let query = if let Some(d) = date {
+            vec![("date", d.format("%Y-%m-%d").to_string())]
+        } else {
+            vec![]
+        };
+
+        let query_refs: Vec<(&str, &str)> = query
+            .iter()
+            .map(|(k, v)| (*k, v.as_ref()))
+            .collect();
+
+        self.tasty
+            .get_with_query(
+                &format!(
+                    "/accounts/{}/transactions/total-fees",
+                    self.inner.account.account_number.0
+                ),
+                &query_refs,
+            )
             .await
     }
 }

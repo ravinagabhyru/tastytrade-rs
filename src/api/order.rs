@@ -25,6 +25,19 @@ pub enum Action {
     Buy,
 }
 
+impl Action {
+    pub fn as_api_str(&self) -> &str {
+        match self {
+            Action::BuyToOpen => "Buy to Open",
+            Action::SellToOpen => "Sell to Open",
+            Action::BuyToClose => "Buy to Close",
+            Action::SellToClose => "Sell to Close",
+            Action::Sell => "Sell",
+            Action::Buy => "Buy",
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum InstrumentType {
     Equity,
@@ -36,6 +49,28 @@ pub enum InstrumentType {
     #[serde(rename = "Future Option")]
     FutureOption,
     Cryptocurrency,
+    Bond,
+    Index,
+    Warrant,
+    #[serde(other)]
+    Unknown,
+}
+
+impl InstrumentType {
+    pub fn as_api_str(&self) -> &str {
+        match self {
+            InstrumentType::Equity => "Equity",
+            InstrumentType::EquityOption => "Equity Option",
+            InstrumentType::EquityOffering => "Equity Offering",
+            InstrumentType::Future => "Future",
+            InstrumentType::FutureOption => "Future Option",
+            InstrumentType::Cryptocurrency => "Cryptocurrency",
+            InstrumentType::Bond => "Bond",
+            InstrumentType::Index => "Index",
+            InstrumentType::Warrant => "Warrant",
+            InstrumentType::Unknown => "Unknown",
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -354,6 +389,18 @@ mod tests {
             serde_json::to_string(&InstrumentType::Cryptocurrency).unwrap(),
             "\"Cryptocurrency\""
         );
+        assert_eq!(
+            serde_json::to_string(&InstrumentType::Bond).unwrap(),
+            "\"Bond\""
+        );
+        assert_eq!(
+            serde_json::to_string(&InstrumentType::Index).unwrap(),
+            "\"Index\""
+        );
+        assert_eq!(
+            serde_json::to_string(&InstrumentType::Warrant).unwrap(),
+            "\"Warrant\""
+        );
 
         // Test deserialization
         assert!(matches!(
@@ -364,6 +411,38 @@ mod tests {
             serde_json::from_str::<InstrumentType>("\"Future Option\"").unwrap(),
             InstrumentType::FutureOption
         ));
+        assert!(matches!(
+            serde_json::from_str::<InstrumentType>("\"Bond\"").unwrap(),
+            InstrumentType::Bond
+        ));
+        assert!(matches!(
+            serde_json::from_str::<InstrumentType>("\"Index\"").unwrap(),
+            InstrumentType::Index
+        ));
+        assert!(matches!(
+            serde_json::from_str::<InstrumentType>("\"Warrant\"").unwrap(),
+            InstrumentType::Warrant
+        ));
+
+        // Test unknown variant
+        assert!(matches!(
+            serde_json::from_str::<InstrumentType>("\"SomeUnknownType\"").unwrap(),
+            InstrumentType::Unknown
+        ));
+    }
+
+    #[test]
+    fn test_instrument_type_as_api_str() {
+        assert_eq!(InstrumentType::Equity.as_api_str(), "Equity");
+        assert_eq!(InstrumentType::EquityOption.as_api_str(), "Equity Option");
+        assert_eq!(InstrumentType::EquityOffering.as_api_str(), "Equity Offering");
+        assert_eq!(InstrumentType::Future.as_api_str(), "Future");
+        assert_eq!(InstrumentType::FutureOption.as_api_str(), "Future Option");
+        assert_eq!(InstrumentType::Cryptocurrency.as_api_str(), "Cryptocurrency");
+        assert_eq!(InstrumentType::Bond.as_api_str(), "Bond");
+        assert_eq!(InstrumentType::Index.as_api_str(), "Index");
+        assert_eq!(InstrumentType::Warrant.as_api_str(), "Warrant");
+        assert_eq!(InstrumentType::Unknown.as_api_str(), "Unknown");
     }
 
     #[test]

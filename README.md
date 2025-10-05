@@ -5,6 +5,7 @@ Rust library for stock market trading through tastytrade's API. Provides compreh
 - **Authentication** and session management (production and sandbox)
 - **Account management** and portfolio operations
 - **Order placement**, modification, and management
+- **Transaction history** including fills, dividends, fees, and deposits
 - **Real-time market data** streaming via DxLink protocol
 - **Options chains** and instrument data
 - **Quote streaming** with Greeks, trades, and market events
@@ -19,6 +20,27 @@ cargo build
 
 # Run tests
 cargo test
+
+# Run ignored integration tests (requires demo credentials)
+export DEMO_USERNAME="your_demo_username"
+export DEMO_PASSWORD="your_demo_password"
+# Optional: export TEST_ACCOUNT_NUMBER for tests that need a specific account
+cargo test -- --ignored
+```
+
+### Integration Test Credentials
+
+Ignored tests exercise live demo endpoints. Set the following environment variables before running them:
+
+- `DEMO_USERNAME` – required demo login
+- `DEMO_PASSWORD` – required demo password
+- `TEST_ACCOUNT_NUMBER` – optional account number used by a few tests
+
+With credentials exported you can run either the full ignored suite or individual tests, for example:
+
+```bash
+cargo test --test transactions_demo -- --ignored
+cargo test --test accounts_status_demo test_total_fees_today -- --ignored
 ```
 
 ### Running Examples
@@ -40,6 +62,9 @@ cargo run --example market-data <username> <password> <demo/live> <symbol>
 
 # Options chains with live Greeks data
 cargo run --example option-chains <username> <password> <demo/live> <symbol> [options]
+
+# Account transactions
+cargo run --example transactions <username> <password> <demo/live> [--limit N] [--days N]
 ```
 
 #### Options Chain Example
@@ -70,6 +95,30 @@ The market data example calls the REST `/market-data/by-type` endpoint to retrie
 cargo run --example market-data myuser mypass demo AAPL
 ```
 
+#### Transactions Example
+
+The transactions example retrieves account transaction history including order fills, dividends, fees, deposits, and other balance/position changes.
+
+```bash
+# List all transactions
+cargo run --example transactions myuser mypass demo
+
+# List last 30 days
+cargo run --example transactions myuser mypass demo --days 30
+
+# Limit to 10 most recent
+cargo run --example transactions myuser mypass demo --limit 10
+
+# Combine filters
+cargo run --example transactions myuser mypass demo --days 7 --limit 25
+```
+
+**Options:**
+- `--days N` - Filter transactions from the last N days
+- `--limit N` - Limit results to N transactions per page
+
+**Note:** Demo accounts may not have transactions unless orders have been executed.
+
 # Library Usage Example
 
 ```rust
@@ -84,6 +133,16 @@ cargo run --example market-data myuser mypass demo AAPL
     println!("{:#?}", account.balance().await);
     println!("{:#?}", account.positions().await);
     println!("{:#?}", account.live_orders().await);
+
+    // List recent transactions
+    let transactions = account.transactions(TransactionQueryParams::default()).await?;
+    for tx in transactions.items {
+        println!("{}: {} - ${}", tx.transaction_date, tx.description, tx.net_value);
+    }
+
+    // Get total fees
+    let fees = account.total_fees(None).await?;
+    println!("Today's fees: ${}", fees.total_fees);
 
     let order_leg = OrderLegBuilder::default()
         .instrument_type(InstrumentType::Equity)

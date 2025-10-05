@@ -77,6 +77,8 @@ pub enum TastyError {
     // DxFeed(#[from] crate::quote_streamer::DxFeedError),
     #[error("Websocket Error")]
     Websocket(#[from] tokio_tungstenite::tungstenite::Error),
+    #[error("Transaction Query Error")]
+    TransactionQuery(#[from] crate::api::transaction::TransactionQueryError),
     #[error("Unexpected response (status {status}): {body}")]
     UnexpectedResponse { status: u16, body: String },
 }
