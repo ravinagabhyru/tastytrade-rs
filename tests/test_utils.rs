@@ -38,6 +38,7 @@ pub mod env {
 }
 
 /// Async test utilities
+#[allow(dead_code)]
 pub mod async_utils {
     use std::time::Duration;
 
