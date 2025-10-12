@@ -147,7 +147,7 @@ pub struct MarketDataItem {
     pub year_high_price: Option<Decimal>,
     #[serde(default, deserialize_with = "option_decimal")]
     pub volume: Option<Decimal>,
-    #[serde(default, deserialize_with = "option_decimal")]
+    #[serde(default, deserialize_with = "option_decimal", alias = "volatility")]
     pub implied_volatility: Option<Decimal>,
     #[serde(default, deserialize_with = "option_decimal")]
     pub delta: Option<Decimal>,
@@ -333,6 +333,24 @@ mod tests {
         assert_eq!(item.implied_volatility, Some(dec_str("0.221")));
         assert_eq!(item.delta, Some(dec_str("0.55")));
         assert_eq!(item.theta, Some(dec_str("-0.03")));
+    }
+
+    #[test]
+    fn option_fields_support_volatility_alias() {
+        let json = json!({
+            "symbol": "AAPL  250119C00150000",
+            "instrument-type": "Equity Option",
+            "volatility": "0.221",  // Note: using "volatility" not "implied-volatility"
+            "delta": "0.55",
+            "gamma": "0.12",
+            "theta": "-0.03",
+            "vega": "0.15",
+            "rho": "0.05"
+        });
+
+        let item: MarketDataItem =
+            serde_json::from_value(json).expect("failed to deserialize with volatility alias");
+        assert_eq!(item.implied_volatility, Some(dec_str("0.221")));
     }
 
     #[test]
