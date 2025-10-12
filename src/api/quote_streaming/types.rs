@@ -71,11 +71,33 @@ pub struct GreeksData {
     pub event_time: Option<u64>,
 }
 
+/// Represents Summary data for a symbol
+#[derive(Debug, Clone)]
+pub struct SummaryData {
+    /// The symbol being quoted
+    pub symbol: String,
+    /// Day opening price
+    pub day_open_price: Option<f64>,
+    /// Day high price
+    pub day_high_price: Option<f64>,
+    /// Day low price
+    pub day_low_price: Option<f64>,
+    /// Day closing price
+    pub day_close_price: Option<f64>,
+    /// Previous day closing price
+    pub prev_day_close_price: Option<f64>,
+    /// Open interest (for options and futures)
+    pub open_interest: Option<f64>,
+    /// Timestamp of the Summary event
+    pub event_time: Option<u64>,
+}
+
 /// Different types of streaming data
 #[derive(Debug, Clone)]
 pub enum StreamerEventData {
     Quote(QuoteData),
     Greeks(GreeksData),
+    Summary(SummaryData),
 }
 
 /// Represents an event from the quote streamer

@@ -108,6 +108,17 @@ async fn main() {
     }
     info!("Subscribed to quotes for symbols: {:?}", quote_symbols);
 
+    // Subscribe to Summary events (includes open interest for options)
+    let summary_symbols = &["SPY   251213C00650000", "SPY   251213P00650000"];
+    if let Err(e) = streamer
+        .subscribe_summary(quote_channel_id, summary_symbols)
+        .await
+    {
+        error!("Failed to subscribe to summary events: {}", e);
+        process::exit(1);
+    }
+    info!("Subscribed to summary events for symbols: {:?}", summary_symbols);
+
     // Subscribe to trades on channel 2
     // let trade_symbols = &["AAPL", "GOOG"];
     // if let Err(e) = streamer.subscribe_trades(trade_channel_id, trade_symbols).await {
@@ -145,6 +156,19 @@ async fn main() {
                         greeks_data.vega.unwrap_or(f64::NAN),
                         greeks_data.rho.unwrap_or(f64::NAN),
                         greeks_data.volatility.map(|v| v * 100.0).unwrap_or(f64::NAN)
+                    );
+                }
+                StreamerEventData::Summary(summary_data) => {
+                    info!(
+                        "[Channel {}] SUMMARY {}: Open={:.2}, High={:.2}, Low={:.2}, Close={:.2}, PrevClose={:.2}, OpenInt={:.0}",
+                        channel_id,
+                        summary_data.symbol,
+                        summary_data.day_open_price.unwrap_or(f64::NAN),
+                        summary_data.day_high_price.unwrap_or(f64::NAN),
+                        summary_data.day_low_price.unwrap_or(f64::NAN),
+                        summary_data.day_close_price.unwrap_or(f64::NAN),
+                        summary_data.prev_day_close_price.unwrap_or(f64::NAN),
+                        summary_data.open_interest.unwrap_or(f64::NAN)
                     );
                 }
             },

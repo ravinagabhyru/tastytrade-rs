@@ -11,7 +11,7 @@ use tokio::sync::{broadcast, Mutex};
 use tracing::{debug, error, info, warn};
 
 use super::error::QuoteStreamingError;
-use super::types::{GreeksData, QuoteData, StreamerEvent, StreamerEventData};
+use super::types::{GreeksData, QuoteData, SummaryData, StreamerEvent, StreamerEventData};
 use crate::api::base::TastyError;
 use crate::api::quote_streaming::ApiQuoteTokensData;
 use crate::Result;
@@ -256,6 +256,25 @@ impl DxLinkQuoteStreamer {
         self.subscribe(channel_id, "Greeks", symbols).await
     }
 
+    /// Subscribes to Summary events for the given symbols on a channel
+    ///
+    /// Summary events include day open/high/low/close prices, previous day close,
+    /// and open interest (for options and futures).
+    ///
+    /// # Arguments
+    /// * `channel_id` - The channel ID to subscribe on
+    /// * `symbols` - A slice of symbols to subscribe to
+    ///
+    /// # Returns
+    /// * `Result<()>` - Ok if subscription was successful, Err otherwise
+    pub async fn subscribe_summary(
+        &self,
+        channel_id: u64,
+        symbols: &[impl AsRef<str>],
+    ) -> Result<()> {
+        self.subscribe(channel_id, "Summary", symbols).await
+    }
+
     /// Unsubscribes from a specific event type for the given symbols on a channel
     ///
     /// # Arguments
@@ -435,6 +454,26 @@ impl DxLinkQuoteStreamer {
                             return Ok(Some(StreamerEvent {
                                 event_type: "Greeks".to_string(),
                                 data: StreamerEventData::Greeks(greeks_data),
+                            }));
+                        }
+                        DxLinkFeedEvent::Summary(summary_event) => {
+                            debug!(
+                                "Received Summary event for symbol: {} on channel {}",
+                                summary_event.event_symbol, channel_id
+                            );
+                            let summary_data = SummaryData {
+                                symbol: summary_event.event_symbol.clone(),
+                                day_open_price: summary_event.day_open_price.as_ref().map(|jd| jd.to_f64()),
+                                day_high_price: summary_event.day_high_price.as_ref().map(|jd| jd.to_f64()),
+                                day_low_price: summary_event.day_low_price.as_ref().map(|jd| jd.to_f64()),
+                                day_close_price: summary_event.day_close_price.as_ref().map(|jd| jd.to_f64()),
+                                prev_day_close_price: summary_event.prev_day_close_price.as_ref().map(|jd| jd.to_f64()),
+                                open_interest: summary_event.open_interest.map(|oi| oi as f64),
+                                event_time: summary_event.event_time,
+                            };
+                            return Ok(Some(StreamerEvent {
+                                event_type: "Summary".to_string(),
+                                data: StreamerEventData::Summary(summary_data),
                             }));
                         }
                         _ => {
