@@ -147,6 +147,8 @@ pub struct MarketDataItem {
     pub year_high_price: Option<Decimal>,
     #[serde(default, deserialize_with = "option_decimal")]
     pub volume: Option<Decimal>,
+    #[serde(default, deserialize_with = "option_decimal")]
+    pub open_interest: Option<Decimal>,
     #[serde(default, deserialize_with = "option_decimal", alias = "volatility")]
     pub implied_volatility: Option<Decimal>,
     #[serde(default, deserialize_with = "option_decimal")]
@@ -325,7 +327,8 @@ mod tests {
             "gamma": "0.12",
             "theta": "-0.03",
             "vega": "0.15",
-            "rho": "0.05"
+            "rho": "0.05",
+            "open-interest": "12345"
         });
 
         let item: MarketDataItem =
@@ -333,6 +336,7 @@ mod tests {
         assert_eq!(item.implied_volatility, Some(dec_str("0.221")));
         assert_eq!(item.delta, Some(dec_str("0.55")));
         assert_eq!(item.theta, Some(dec_str("-0.03")));
+        assert_eq!(item.open_interest, Some(dec_str("12345")));
     }
 
     #[test]

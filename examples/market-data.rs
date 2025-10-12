@@ -216,15 +216,15 @@ async fn main() {
         next_expiration.expiration_date
     );
     println!(
-        "{:<10} {:<4} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8}",
-        "Strike", "Type", "Bid", "Ask", "Mark", "IV%", "Delta", "Theta"
+        "{:<10} {:<4} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>10}",
+        "Strike", "Type", "Bid", "Ask", "Mark", "IV%", "Delta", "Theta", "OpenInt"
     );
 
     for strike in &selected_strikes {
         let strike_label = strike.strike_price.to_string();
         if let Some(call) = by_symbol.get(&strike.call.0) {
             println!(
-                "{:<10} {:<4} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8}",
+                "{:<10} {:<4} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>10}",
                 strike_label,
                 "CALL",
                 fmt_price(&call.bid),
@@ -233,17 +233,22 @@ async fn main() {
                 fmt_percent(&call.implied_volatility),
                 fmt_greek(&call.delta),
                 fmt_greek(&call.theta),
+                fmt_price(&call.open_interest),
             );
+            // Print extra fields if they exist
+            if !call.extra.is_empty() {
+                println!("  Extra fields for {}: {:?}", call.symbol, call.extra);
+            }
         } else {
             println!(
-                "{:<10} {:<4} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8}",
-                strike_label, "CALL", "-", "-", "-", "-", "-", "-"
+                "{:<10} {:<4} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>10}",
+                strike_label, "CALL", "-", "-", "-", "-", "-", "-", "-"
             );
         }
 
         if let Some(put) = by_symbol.get(&strike.put.0) {
             println!(
-                "{:<10} {:<4} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8}",
+                "{:<10} {:<4} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>10}",
                 strike_label,
                 "PUT",
                 fmt_price(&put.bid),
@@ -252,11 +257,16 @@ async fn main() {
                 fmt_percent(&put.implied_volatility),
                 fmt_greek(&put.delta),
                 fmt_greek(&put.theta),
+                fmt_price(&put.open_interest),
             );
+            // Print extra fields if they exist
+            if !put.extra.is_empty() {
+                println!("  Extra fields for {}: {:?}", put.symbol, put.extra);
+            }
         } else {
             println!(
-                "{:<10} {:<4} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8}",
-                strike_label, "PUT", "-", "-", "-", "-", "-", "-"
+                "{:<10} {:<4} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>10}",
+                strike_label, "PUT", "-", "-", "-", "-", "-", "-", "-"
             );
         }
 
