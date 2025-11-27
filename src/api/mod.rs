@@ -3,6 +3,8 @@ pub mod accounts;
 pub mod base;
 pub mod event;
 pub mod instrument;
+pub mod auth;
+pub mod oauth2;
 pub mod login;
 pub mod market_data;
 pub mod option_chain;

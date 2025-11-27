@@ -73,6 +73,8 @@ pub enum TastyError {
     Reqwest(#[from] reqwest::Error),
     #[error("JSON Error")]
     Json(#[from] serde_json::Error),
+    #[error("Config Error: {0}")]
+    Config(String),
     // #[error("DxFeed Error")]
     // DxFeed(#[from] crate::quote_streamer::DxFeedError),
     #[error("Websocket Error")]
