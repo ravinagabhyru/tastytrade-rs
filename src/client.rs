@@ -243,7 +243,8 @@ impl TastyTrade {
             .send()
             .await?;
         let token_resp: OAuth2TokenResponse = resp.json().await?;
-        Ok(OAuth2Token::from_response(token_resp))
+        // Pass original refresh_token as fallback since refresh responses may omit it
+        Ok(OAuth2Token::from_response(token_resp, Some(refresh_token)))
     }
 
     async fn exchange_code_for_token(
@@ -267,7 +268,8 @@ impl TastyTrade {
             .send()
             .await?;
         let token_resp: OAuth2TokenResponse = resp.json().await?;
-        Ok(OAuth2Token::from_response(token_resp))
+        // Authorization code exchange must return a refresh_token
+        Ok(OAuth2Token::from_response(token_resp, None))
     }
 
     /// Ensure the OAuth2 token is valid; refresh if needed. No-op for Session auth.

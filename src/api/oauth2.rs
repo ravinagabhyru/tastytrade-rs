@@ -16,7 +16,9 @@ pub struct OAuth2Config {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OAuth2TokenResponse {
     pub access_token: String,
-    pub refresh_token: String,
+    /// May be absent when refreshing (original refresh token remains valid)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refresh_token: Option<String>,
     pub token_type: String,
     pub expires_in: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -37,11 +39,16 @@ pub struct OAuth2Token {
 }
 
 impl OAuth2Token {
-    /// Create a token from API response and set obtained_at to now
-    pub fn from_response(response: OAuth2TokenResponse) -> Self {
+    /// Create a token from API response and set obtained_at to now.
+    /// If the response doesn't include a refresh_token (common when refreshing),
+    /// use the provided fallback.
+    pub fn from_response(response: OAuth2TokenResponse, fallback_refresh_token: Option<&str>) -> Self {
+        let refresh_token = response
+            .refresh_token
+            .unwrap_or_else(|| fallback_refresh_token.expect("refresh_token required").to_string());
         Self {
             access_token: response.access_token,
-            refresh_token: response.refresh_token,
+            refresh_token,
             token_type: response.token_type,
             expires_in: response.expires_in,
             obtained_at: Utc::now(),
