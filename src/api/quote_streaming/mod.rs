@@ -9,13 +9,20 @@
 //! # Example
 //! ```rust,no_run
 //! use tastytrade_rs::TastyTrade;
+//! use tastytrade_rs::api::oauth2::OAuth2Config;
 //! use dxlink_rs::feed::FeedContract;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let tasty = TastyTrade::login("username", "password", false).await?;
+//!     let config = OAuth2Config {
+//!         client_id: "your-client-id".to_string(),
+//!         client_secret: "your-client-secret".to_string(),
+//!         redirect_uri: "http://localhost".to_string(),
+//!         scopes: vec!["read".to_string()],
+//!     };
+//!     let tasty = TastyTrade::from_refresh_token(config, "your-refresh-token", true).await?;
 //!     let mut streamer = tasty.create_dxlink_quote_streamer().await?;
-//!     
+//!
 //!     // Create a channel for quotes
 //!     let channel_id = streamer.create_channel(FeedContract::Auto, None).await?;
 //!
@@ -26,7 +33,7 @@
 //!     while let Ok(Some((ch_id, event))) = streamer.receive_event().await {
 //!         println!("Received quote on channel {}: {:?}", ch_id, event);
 //!     }
-//!     
+//!
 //!     Ok(())
 //! }
 //! ```

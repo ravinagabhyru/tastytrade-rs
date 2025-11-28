@@ -1,12 +1,11 @@
 pub mod account_streaming;
 pub mod accounts;
+pub mod auth;
 pub mod base;
 pub mod event;
 pub mod instrument;
-pub mod auth;
-pub mod oauth2;
-pub mod login;
 pub mod market_data;
+pub mod oauth2;
 pub mod option_chain;
 pub mod order;
 pub mod position;

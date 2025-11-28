@@ -4,32 +4,26 @@ use reqwest::header::HeaderValue;
 use reqwest::ClientBuilder;
 
 use serde::de::DeserializeOwned;
-
 use serde::Serialize;
 
 use crate::api::base::Items;
 use crate::api::base::Paginated;
-
 use crate::api::base::Response;
 use crate::api::base::Result;
 use crate::api::base::TastyApiResponse;
 use crate::api::base::TastyError;
-use crate::api::login::LoginCredentials;
-use crate::api::login::LoginResponse;
-use crate::api::auth::AuthMode;
+use crate::api::auth::AuthState;
 use crate::api::oauth2::{OAuth2AuthRequest, OAuth2Config, OAuth2Token, OAuth2TokenResponse};
 use tokio::sync::{Mutex, RwLock};
 use chrono::Utc;
 use url::Url;
-
-// use reqwest_inspect_json::InspectJson;
 
 pub const BASE_URL: &str = "https://api.tastyworks.com";
 pub const BASE_DEMO_URL: &str = "https://api.cert.tastyworks.com";
 
 pub struct TastyTrade {
     pub(crate) client: reqwest::Client,
-    pub(crate) auth_mode: RwLock<AuthMode>,
+    pub(crate) auth_state: RwLock<AuthState>,
     base_url: &'static str,
     pub(crate) demo: bool,
     refresh_lock: Mutex<()>,
@@ -55,109 +49,44 @@ impl<T: DeserializeOwned> FromTastyResponse<Items<T>> for Paginated<T> {
 }
 
 impl TastyTrade {
-    #[deprecated(since = "0.5.0", note = "Use OAuth2 authentication methods instead")]
-    pub async fn login(login: &str, password: &str, remember_me: bool) -> Result<Self> {
-        let creds = Self::do_login_request(login, password, remember_me, BASE_URL).await?;
-        let client = Self::create_client();
-
-        Ok(Self {
-            client,
-            auth_mode: RwLock::new(AuthMode::Session { session_token: creds.session_token }),
-            base_url: "https://api.tastyworks.com",
-            demo: false,
-            refresh_lock: Mutex::new(()),
-        })
-    }
-
-    #[deprecated(since = "0.5.0", note = "Use OAuth2 authentication methods instead")]
-    pub async fn login_demo(login: &str, password: &str, remember_me: bool) -> Result<Self> {
-        let creds = Self::do_login_request(login, password, remember_me, BASE_DEMO_URL).await?;
-        let client = Self::create_client();
-
-        Ok(Self {
-            client,
-            auth_mode: RwLock::new(AuthMode::Session { session_token: creds.session_token }),
-            base_url: "https://api.cert.tastyworks.com",
-            demo: true,
-            refresh_lock: Mutex::new(()),
-        })
-    }
-
-    fn create_client() -> reqwest::Client {
-        let mut headers = HeaderMap::new();
-
-        headers.insert(header::CONTENT_TYPE, HeaderValue::from_str("application/json").unwrap());
-        headers.insert(header::USER_AGENT, HeaderValue::from_str("tastytrade-rs").unwrap());
-
-        ClientBuilder::new()
-            .default_headers(headers)
-            .build()
-            .expect("Could not create client")
-    }
-
-    async fn do_login_request(
-        login: &str,
-        password: &str,
-        remember_me: bool,
-        base_url: &str,
-    ) -> Result<LoginResponse> {
-        let client = reqwest::Client::default();
-
-        let resp = client
-            .post(format!("{base_url}/sessions"))
-            .header(header::CONTENT_TYPE, "application/json")
-            .header(header::USER_AGENT, "tastytrade-rs")
-            .json(&LoginCredentials {
-                login,
-                password,
-                remember_me,
-            })
-            .send()
-            .await?;
-        let json = resp
-            // .inspect_json::<TastyApiResponse<LoginResponse>, TastyError>(|text| println!("{text}"))
-            .json()
-            .await?;
-        let response = match json {
-            TastyApiResponse::Success(s) => Ok(s),
-            TastyApiResponse::Error { error } => Err(error),
-        }?
-        .data;
-
-        Ok(response)
-    }
-
-    // ===== OAuth2 Support =====
-
-    /// Create an OAuth2 client using a refresh token (personal grant)
-    pub async fn oauth2_from_refresh_token(
+    /// Create a client using a refresh token (personal grant flow)
+    ///
+    /// This is the simplest way to authenticate for personal applications.
+    /// Generate a refresh token at my.tastytrade.com -> API -> OAuth Applications.
+    pub async fn from_refresh_token(
         config: OAuth2Config,
         refresh_token: &str,
         demo: bool,
     ) -> Result<Self> {
         let base = if demo { BASE_DEMO_URL } else { BASE_URL };
-        let token = Self::refresh_oauth2_token(&config, refresh_token, base).await?;
-        Self::create_oauth2_client(config, token, demo)
+        let token = Self::do_refresh_token(&config, refresh_token, base).await?;
+        Self::create_client(config, token, demo)
     }
 
-    /// Create an OAuth2 client from a saved token (auto-refresh if needed)
-    pub async fn oauth2_from_token(config: OAuth2Config, token: OAuth2Token, demo: bool) -> Result<Self> {
+    /// Create a client from a saved token (auto-refreshes if expired)
+    ///
+    /// Use this to restore a session from a previously saved OAuth2Token.
+    pub async fn from_token(config: OAuth2Config, token: OAuth2Token, demo: bool) -> Result<Self> {
         if token.is_expired() {
-            Self::oauth2_from_refresh_token(config, &token.refresh_token, demo).await
+            Self::from_refresh_token(config, &token.refresh_token, demo).await
         } else {
-            Self::create_oauth2_client(config, token, demo)
+            Self::create_client(config, token, demo)
         }
     }
 
-    /// Exchange authorization code for tokens
-    pub async fn oauth2_exchange_code(config: OAuth2Config, code: &str, demo: bool) -> Result<Self> {
+    /// Create a client by exchanging an authorization code for tokens
+    ///
+    /// Use this after the user completes the browser-based authorization flow.
+    pub async fn from_auth_code(config: OAuth2Config, code: &str, demo: bool) -> Result<Self> {
         let base = if demo { BASE_DEMO_URL } else { BASE_URL };
         let token = Self::exchange_code_for_token(&config, code, base).await?;
-        Self::create_oauth2_client(config, token, demo)
+        Self::create_client(config, token, demo)
     }
 
     /// Build the authorization URL for browser-based code flow
-    pub fn oauth2_authorize_url(config: &OAuth2Config, state: Option<&str>, demo: bool) -> String {
+    ///
+    /// Direct users to this URL to authorize your application.
+    pub fn authorize_url(config: &OAuth2Config, state: Option<&str>, demo: bool) -> String {
         let host = if demo {
             "https://cert-my.staging-tasty.works"
         } else {
@@ -180,39 +109,35 @@ impl TastyTrade {
         url.into()
     }
 
-    /// Accessor for the current OAuth2 token (if applicable)
-    pub async fn get_oauth2_token(&self) -> Option<OAuth2Token> {
-        let guard = self.auth_mode.read().await;
-        match &*guard {
-            AuthMode::OAuth2 { access_token, refresh_token, expires_at, .. } => {
-                Some(OAuth2Token {
-                    access_token: access_token.clone(),
-                    refresh_token: refresh_token.clone().unwrap_or_default(),
-                    token_type: "Bearer".to_string(),
-                    expires_in: expires_at
-                        .map(|exp| (exp - Utc::now()).num_seconds().max(0))
-                        .unwrap_or(3600),
-                    obtained_at: expires_at.map(|exp| exp - chrono::Duration::seconds(3600)).unwrap_or_else(Utc::now),
-                    id_token: None,
-                })
-            }
-            _ => None,
+    /// Get the current OAuth2 token for saving/persistence
+    pub async fn get_token(&self) -> OAuth2Token {
+        let guard = self.auth_state.read().await;
+        OAuth2Token {
+            access_token: guard.access_token.clone(),
+            refresh_token: guard.refresh_token.clone().unwrap_or_default(),
+            token_type: "Bearer".to_string(),
+            expires_in: guard.expires_at
+                .map(|exp| (exp - Utc::now()).num_seconds().max(0))
+                .unwrap_or(3600),
+            obtained_at: guard.expires_at
+                .map(|exp| exp - chrono::Duration::seconds(3600))
+                .unwrap_or_else(Utc::now),
+            id_token: None,
         }
     }
 
-    fn create_oauth2_client(config: OAuth2Config, token: OAuth2Token, demo: bool) -> Result<Self> {
+    fn create_client(config: OAuth2Config, token: OAuth2Token, demo: bool) -> Result<Self> {
         let mut headers = HeaderMap::new();
         headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
         headers.insert(header::USER_AGENT, HeaderValue::from_static("tastytrade-rs"));
         let client = ClientBuilder::new().default_headers(headers).build()?;
 
         let expires_at = token.expires_at();
-        let refresh_token = token.refresh_token.clone();
         Ok(Self {
             client,
-            auth_mode: RwLock::new(AuthMode::OAuth2 {
+            auth_state: RwLock::new(AuthState {
                 access_token: token.access_token,
-                refresh_token: Some(refresh_token),
+                refresh_token: Some(token.refresh_token),
                 expires_at: Some(expires_at),
                 config,
             }),
@@ -222,7 +147,7 @@ impl TastyTrade {
         })
     }
 
-    async fn refresh_oauth2_token(
+    async fn do_refresh_token(
         config: &OAuth2Config,
         refresh_token: &str,
         base_url: &str,
@@ -272,11 +197,11 @@ impl TastyTrade {
         Ok(OAuth2Token::from_response(token_resp, None))
     }
 
-    /// Ensure the OAuth2 token is valid; refresh if needed. No-op for Session auth.
+    /// Ensure the access token is valid; refresh if needed.
     async fn ensure_valid_token(&self) -> Result<()> {
         // Fast path without lock
         let needs_refresh = {
-            let guard = self.auth_mode.read().await;
+            let guard = self.auth_state.read().await;
             guard.needs_refresh()
         };
         if !needs_refresh {
@@ -287,29 +212,24 @@ impl TastyTrade {
         let _lock = self.refresh_lock.lock().await;
         // Recheck after acquiring the lock
         let maybe_refresh = {
-            let guard = self.auth_mode.read().await;
-            match &*guard {
-                AuthMode::OAuth2 { config, refresh_token, .. } if guard.needs_refresh() => {
-                    Some((config.clone(), refresh_token.clone()))
-                }
-                _ => None,
+            let guard = self.auth_state.read().await;
+            if guard.needs_refresh() {
+                Some((guard.config.clone(), guard.refresh_token.clone()))
+            } else {
+                None
             }
         };
 
-        if let Some((config, refresh_token)) = maybe_refresh {
-            if let Some(refresh_token) = refresh_token {
-                let base = if self.demo { BASE_DEMO_URL } else { BASE_URL };
-                tracing::info!("Refreshing OAuth2 access token");
-                let new_token = Self::refresh_oauth2_token(&config, &refresh_token, base).await?;
-                let mut guard = self.auth_mode.write().await;
-                *guard = AuthMode::OAuth2 {
-                    access_token: new_token.access_token.clone(),
-                    refresh_token: Some(new_token.refresh_token.clone()),
-                    expires_at: Some(new_token.expires_at()),
-                    config,
-                };
-                tracing::info!("OAuth2 access token refreshed");
-            }
+        if let Some((config, Some(refresh_token))) = maybe_refresh {
+            let base = if self.demo { BASE_DEMO_URL } else { BASE_URL };
+            tracing::info!("Refreshing access token");
+            let new_token = Self::do_refresh_token(&config, &refresh_token, base).await?;
+            let expires_at = new_token.expires_at();
+            let mut guard = self.auth_state.write().await;
+            guard.access_token = new_token.access_token;
+            guard.refresh_token = Some(new_token.refresh_token);
+            guard.expires_at = Some(expires_at);
+            tracing::info!("Access token refreshed");
         }
         Ok(())
     }
@@ -324,8 +244,7 @@ impl TastyTrade {
         let url = format!("{}{}", self.base_url, url.as_ref());
 
         let mut req = self.client.get(&url).query(query);
-        // attach Authorization per request
-        let auth_header = { self.auth_mode.read().await.auth_header() };
+        let auth_header = { self.auth_state.read().await.auth_header() };
         req = req.header(header::AUTHORIZATION, auth_header);
 
         let response = req.send().await?;
@@ -394,8 +313,7 @@ impl TastyTrade {
         self.ensure_valid_token().await?;
         let url = format!("{}{}", self.base_url, url.as_ref());
         let mut req = self.client.post(url).body(serde_json::to_string(&payload).unwrap());
-        // attach Authorization per request
-        let auth_header = { self.auth_mode.read().await.auth_header() };
+        let auth_header = { self.auth_state.read().await.auth_header() };
         req = req.header(header::AUTHORIZATION, auth_header);
 
         let result = req
@@ -421,8 +339,7 @@ impl TastyTrade {
         self.ensure_valid_token().await?;
         let url = format!("{}{}", self.base_url, url.as_ref());
         let mut req = self.client.delete(url);
-        // attach Authorization per request
-        let auth_header = { self.auth_mode.read().await.auth_header() };
+        let auth_header = { self.auth_state.read().await.auth_header() };
         req = req.header(header::AUTHORIZATION, auth_header);
 
         let result = req

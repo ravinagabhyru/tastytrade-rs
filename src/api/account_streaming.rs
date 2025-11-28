@@ -86,8 +86,8 @@ impl AccountStreamer {
         // Capture the current auth header value for websocket auth
         let token = {
             // best-effort snapshot; websocket does not auto-refresh this value
-            // for OAuth2, if the access token expires, the streaming connection may need reestablishing
-            tasty.auth_mode.read().await.auth_header()
+            // if the access token expires, the streaming connection may need reestablishing
+            tasty.auth_state.read().await.auth_header()
         };
         let (event_sender, event_receiver) = flume::unbounded();
         let (action_sender, action_receiver): (

@@ -2,72 +2,65 @@ use rust_decimal::prelude::*;
 use std::collections::HashMap;
 use std::process;
 use std::time::Duration;
+use tastytrade_rs::api::oauth2::OAuth2Config;
 use tastytrade_rs::api::quote_streaming::{GreeksData, QuoteData, StreamerEventData};
 use tastytrade_rs::TastyTrade;
 
+fn get_oauth_config() -> (OAuth2Config, String) {
+    let client_id = std::env::var("TT_OAUTH_CLIENT_ID").unwrap_or_else(|_| {
+        eprintln!("Error: TT_OAUTH_CLIENT_ID environment variable not set");
+        eprintln!("Required env vars: TT_OAUTH_CLIENT_ID, TT_OAUTH_CLIENT_SECRET, TT_OAUTH_REFRESH_TOKEN");
+        process::exit(1);
+    });
+    let client_secret = std::env::var("TT_OAUTH_CLIENT_SECRET").unwrap_or_else(|_| {
+        eprintln!("Error: TT_OAUTH_CLIENT_SECRET environment variable not set");
+        process::exit(1);
+    });
+    let redirect_uri = std::env::var("TT_OAUTH_REDIRECT_URI")
+        .unwrap_or_else(|_| "http://localhost".to_string());
+    let refresh_token = std::env::var("TT_OAUTH_REFRESH_TOKEN").unwrap_or_else(|_| {
+        eprintln!("Error: TT_OAUTH_REFRESH_TOKEN environment variable not set");
+        process::exit(1);
+    });
+
+    let config = OAuth2Config {
+        client_id,
+        client_secret,
+        redirect_uri,
+        scopes: vec!["read".to_string()],
+    };
+    (config, refresh_token)
+}
+
 #[tokio::main]
 async fn main() {
-    let mut args = std::env::args().skip(1);
-    let username = match args.next() {
-        Some(u) => u,
-        None => {
-            eprintln!("Error: Missing username argument.");
-            eprintln!("Usage: option-chains <username> <password> <demo/live> <symbol> [--strike-range min-max] [--max-dte days] [--with-streaming]");
-            process::exit(1);
-        }
-    };
-    let password = match args.next() {
-        Some(p) => p,
-        None => {
-            eprintln!("Error: Missing password argument.");
-            eprintln!("Usage: option-chains <username> <password> <demo/live> <symbol> [--strike-range min-max] [--max-dte days] [--with-streaming]");
-            process::exit(1);
-        }
-    };
-    let env = match args.next() {
-        Some(e) => e,
-        None => {
-            eprintln!("Error: Missing environment argument.");
-            eprintln!("Usage: option-chains <username> <password> <demo/live> <symbol> [--strike-range min-max] [--max-dte days] [--with-streaming]");
-            process::exit(1);
-        }
-    };
-    let symbol = match args.next() {
-        Some(s) => s,
-        None => {
-            eprintln!("Error: Missing symbol argument.");
-            eprintln!("Usage: option-chains <username> <password> <demo/live> <symbol> [--strike-range min-max] [--max-dte days] [--with-streaming]");
-            process::exit(1);
-        }
-    };
+    let args: Vec<String> = std::env::args().skip(1).collect();
 
-    // Parse optional filters
+    // Parse positional and optional arguments
+    let mut symbol: Option<String> = None;
+    let mut live = false;
     let mut strike_min: Option<Decimal> = None;
     let mut strike_max: Option<Decimal> = None;
     let mut max_dte: Option<u64> = None;
-    let mut with_streaming: bool = false;
+    let mut with_streaming = false;
 
     let mut i = 0;
-    let remaining_args: Vec<String> = args.collect();
-    while i < remaining_args.len() {
-        match remaining_args[i].as_str() {
+    while i < args.len() {
+        match args[i].as_str() {
+            "live" => {
+                live = true;
+                i += 1;
+            }
             "--strike-range" => {
-                if i + 1 < remaining_args.len() {
-                    let range = &remaining_args[i + 1];
+                if i + 1 < args.len() {
+                    let range = &args[i + 1];
                     if let Some((min_str, max_str)) = range.split_once('-') {
                         strike_min = min_str.parse().ok();
                         strike_max = max_str.parse().ok();
                         if strike_min.is_none() || strike_max.is_none() {
-                            eprintln!(
-                                "Error: Invalid strike range format. Use: --strike-range 100-200"
-                            );
+                            eprintln!("Error: Invalid strike range format. Use: --strike-range 100-200");
                             process::exit(1);
                         }
-                    } else {
-                        eprintln!(
-                            "Error: Invalid strike range format. Use: --strike-range 100-200"
-                        );
-                        process::exit(1);
                     }
                     i += 2;
                 } else {
@@ -76,8 +69,8 @@ async fn main() {
                 }
             }
             "--max-dte" => {
-                if i + 1 < remaining_args.len() {
-                    max_dte = remaining_args[i + 1].parse().ok();
+                if i + 1 < args.len() {
+                    max_dte = args[i + 1].parse().ok();
                     if max_dte.is_none() {
                         eprintln!("Error: Invalid max-dte value. Must be a number.");
                         process::exit(1);
@@ -92,23 +85,32 @@ async fn main() {
                 with_streaming = true;
                 i += 1;
             }
+            arg if !arg.starts_with("--") && symbol.is_none() => {
+                symbol = Some(arg.to_string());
+                i += 1;
+            }
             _ => {
-                eprintln!("Error: Unknown argument: {}", remaining_args[i]);
+                eprintln!("Error: Unknown argument: {}", args[i]);
+                eprintln!("Usage: option-chains <symbol> [live] [--strike-range min-max] [--max-dte days] [--with-streaming]");
                 process::exit(1);
             }
         }
     }
 
-    let live = env == "live";
-
-    // Login
-    let login_result = if live {
-        TastyTrade::login(&username, &password, false).await
-    } else {
-        TastyTrade::login_demo(&username, &password, false).await
+    let symbol = match symbol {
+        Some(s) => s,
+        None => {
+            eprintln!("Error: Missing symbol argument.");
+            eprintln!("Usage: option-chains <symbol> [live] [--strike-range min-max] [--max-dte days] [--with-streaming]");
+            process::exit(1);
+        }
     };
 
-    let tasty = match login_result {
+    let (config, refresh_token) = get_oauth_config();
+    let env_name = if live { "production" } else { "demo" };
+    println!("Logging in ({} environment)...", env_name);
+
+    let tasty = match TastyTrade::from_refresh_token(config, &refresh_token, !live).await {
         Ok(t) => t,
         Err(e) => {
             eprintln!("Login failed: {}", e);
@@ -239,6 +241,7 @@ async fn main() {
                                                 let streamer_symbol = match &event.data {
                                                     StreamerEventData::Quote(q) => &q.symbol,
                                                     StreamerEventData::Greeks(g) => &g.symbol,
+                                                    StreamerEventData::Summary(s) => &s.symbol,
                                                 };
 
                                                 if let Some(regular_symbol) = symbol_mapping.get(streamer_symbol) {
@@ -250,6 +253,9 @@ async fn main() {
                                                         }
                                                         StreamerEventData::Greeks(greeks_data) => {
                                                             entry.1 = Some(greeks_data);
+                                                        }
+                                                        StreamerEventData::Summary(_) => {
+                                                            // Summary events not used in this example
                                                         }
                                                     }
                                                 }

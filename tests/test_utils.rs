@@ -1,4 +1,6 @@
 use tastytrade_rs::api::order::Symbol;
+use tastytrade_rs::api::oauth2::OAuth2Config;
+use tastytrade_rs::TastyTrade;
 
 /// Common test symbols used across tests
 pub mod test_symbols {
@@ -21,13 +23,32 @@ pub mod test_symbols {
 /// Environment variable helpers for integration tests
 pub mod env {
     use std::env;
+    use super::{OAuth2Config, TastyTrade};
 
-    /// Get demo credentials from environment variables
+    /// Get OAuth2 config from environment variables
     /// Returns None if not available (tests should be skipped)
-    pub fn demo_credentials() -> Option<(String, String)> {
-        let username = env::var("DEMO_USERNAME").ok()?;
-        let password = env::var("DEMO_PASSWORD").ok()?;
-        Some((username, password))
+    #[allow(dead_code)]
+    pub fn oauth_config() -> Option<(OAuth2Config, String)> {
+        let client_id = env::var("TT_OAUTH_CLIENT_ID").ok()?;
+        let client_secret = env::var("TT_OAUTH_CLIENT_SECRET").ok()?;
+        let redirect_uri = env::var("TT_OAUTH_REDIRECT_URI")
+            .unwrap_or_else(|_| "http://localhost".to_string());
+        let refresh_token = env::var("TT_OAUTH_REFRESH_TOKEN").ok()?;
+
+        let config = OAuth2Config {
+            client_id,
+            client_secret,
+            redirect_uri,
+            scopes: vec!["read".to_string()],
+        };
+        Some((config, refresh_token))
+    }
+
+    /// Create a TastyTrade client using OAuth env vars (demo environment)
+    #[allow(dead_code)]
+    pub async fn create_demo_client() -> Option<TastyTrade> {
+        let (config, refresh_token) = oauth_config()?;
+        TastyTrade::from_refresh_token(config, &refresh_token, true).await.ok()
     }
 
     /// Get demo account number from environment

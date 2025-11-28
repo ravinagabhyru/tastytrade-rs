@@ -1,95 +1,88 @@
 use std::process;
+use tastytrade_rs::api::oauth2::OAuth2Config;
 use tastytrade_rs::api::transaction::TransactionQueryParams;
 use tastytrade_rs::TastyTrade;
 
+fn get_oauth_config() -> (OAuth2Config, String) {
+    let client_id = std::env::var("TT_OAUTH_CLIENT_ID").unwrap_or_else(|_| {
+        eprintln!("Error: TT_OAUTH_CLIENT_ID environment variable not set");
+        eprintln!("Required env vars: TT_OAUTH_CLIENT_ID, TT_OAUTH_CLIENT_SECRET, TT_OAUTH_REFRESH_TOKEN");
+        process::exit(1);
+    });
+    let client_secret = std::env::var("TT_OAUTH_CLIENT_SECRET").unwrap_or_else(|_| {
+        eprintln!("Error: TT_OAUTH_CLIENT_SECRET environment variable not set");
+        process::exit(1);
+    });
+    let redirect_uri = std::env::var("TT_OAUTH_REDIRECT_URI")
+        .unwrap_or_else(|_| "http://localhost".to_string());
+    let refresh_token = std::env::var("TT_OAUTH_REFRESH_TOKEN").unwrap_or_else(|_| {
+        eprintln!("Error: TT_OAUTH_REFRESH_TOKEN environment variable not set");
+        process::exit(1);
+    });
+
+    let config = OAuth2Config {
+        client_id,
+        client_secret,
+        redirect_uri,
+        scopes: vec!["read".to_string()],
+    };
+    (config, refresh_token)
+}
+
 #[tokio::main]
 async fn main() {
-    let mut args = std::env::args().skip(1);
-    let username = match args.next() {
-        Some(u) => u,
-        None => {
-            eprintln!("Error: Missing username argument.");
-            eprintln!("Usage: transactions <username> <password> <demo/live> [--limit N] [--days N]");
-            process::exit(1);
-        }
-    };
-    let password = match args.next() {
-        Some(p) => p,
-        None => {
-            eprintln!("Error: Missing password argument.");
-            eprintln!("Usage: transactions <username> <password> <demo/live> [--limit N] [--days N]");
-            process::exit(1);
-        }
-    };
-    let env = match args.next() {
-        Some(e) => e,
-        None => {
-            eprintln!("Error: Missing environment argument.");
-            eprintln!("Usage: transactions <username> <password> <demo/live> [--limit N] [--days N]");
-            process::exit(1);
-        }
-    };
+    let args: Vec<String> = std::env::args().skip(1).collect();
 
-    // Parse optional arguments
+    let mut live = false;
     let mut limit: Option<usize> = None;
     let mut days: Option<i64> = None;
 
-    while let Some(arg) = args.next() {
-        match arg.as_str() {
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "live" => {
+                live = true;
+                i += 1;
+            }
             "--limit" => {
-                limit = match args.next() {
-                    Some(n) => match n.parse() {
-                        Ok(num) => Some(num),
-                        Err(_) => {
-                            eprintln!("Error: Invalid limit value: {}", n);
-                            process::exit(1);
-                        }
-                    },
-                    None => {
-                        eprintln!("Error: --limit requires a number argument");
+                if i + 1 < args.len() {
+                    limit = args[i + 1].parse().ok();
+                    if limit.is_none() {
+                        eprintln!("Error: Invalid limit value: {}", args[i + 1]);
                         process::exit(1);
                     }
-                };
+                    i += 2;
+                } else {
+                    eprintln!("Error: --limit requires a number argument");
+                    process::exit(1);
+                }
             }
             "--days" => {
-                days = match args.next() {
-                    Some(n) => match n.parse() {
-                        Ok(num) => Some(num),
-                        Err(_) => {
-                            eprintln!("Error: Invalid days value: {}", n);
-                            process::exit(1);
-                        }
-                    },
-                    None => {
-                        eprintln!("Error: --days requires a number argument");
+                if i + 1 < args.len() {
+                    days = args[i + 1].parse().ok();
+                    if days.is_none() {
+                        eprintln!("Error: Invalid days value: {}", args[i + 1]);
                         process::exit(1);
                     }
-                };
+                    i += 2;
+                } else {
+                    eprintln!("Error: --days requires a number argument");
+                    process::exit(1);
+                }
             }
             _ => {
-                eprintln!("Error: Unknown argument: {}", arg);
-                eprintln!("Usage: transactions <username> <password> <demo/live> [--limit N] [--days N]");
+                eprintln!("Error: Unknown argument: {}", args[i]);
+                eprintln!("Usage: transactions [live] [--limit N] [--days N]");
                 process::exit(1);
             }
         }
     }
 
-    let is_live = match env.as_str() {
-        "live" => true,
-        "demo" => false,
-        _ => {
-            eprintln!("Error: Environment must be either 'demo' or 'live', got: {}", env);
-            process::exit(1);
-        }
-    };
+    let (config, refresh_token) = get_oauth_config();
+    let env_name = if live { "production" } else { "demo" };
+    println!("Logging in ({} environment)...", env_name);
 
-    let login_result = if is_live {
-        TastyTrade::login(&username, &password, false).await
-    } else {
-        TastyTrade::login_demo(&username, &password, false).await
-    };
-
-    let tasty = match login_result {
+    let tasty = match TastyTrade::from_refresh_token(config, &refresh_token, !live).await {
         Ok(t) => t,
         Err(e) => {
             eprintln!("Login failed: {}", e);

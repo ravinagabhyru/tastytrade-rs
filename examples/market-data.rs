@@ -3,8 +3,35 @@ use std::process;
 
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
+use tastytrade_rs::api::oauth2::OAuth2Config;
 use tastytrade_rs::api::option_chain::Strike;
 use tastytrade_rs::{MarketDataItem, MarketDataRequest, TastyTrade};
+
+fn get_oauth_config() -> (OAuth2Config, String) {
+    let client_id = std::env::var("TT_OAUTH_CLIENT_ID").unwrap_or_else(|_| {
+        eprintln!("Error: TT_OAUTH_CLIENT_ID environment variable not set");
+        eprintln!("Required env vars: TT_OAUTH_CLIENT_ID, TT_OAUTH_CLIENT_SECRET, TT_OAUTH_REFRESH_TOKEN");
+        process::exit(1);
+    });
+    let client_secret = std::env::var("TT_OAUTH_CLIENT_SECRET").unwrap_or_else(|_| {
+        eprintln!("Error: TT_OAUTH_CLIENT_SECRET environment variable not set");
+        process::exit(1);
+    });
+    let redirect_uri = std::env::var("TT_OAUTH_REDIRECT_URI")
+        .unwrap_or_else(|_| "http://localhost".to_string());
+    let refresh_token = std::env::var("TT_OAUTH_REFRESH_TOKEN").unwrap_or_else(|_| {
+        eprintln!("Error: TT_OAUTH_REFRESH_TOKEN environment variable not set");
+        process::exit(1);
+    });
+
+    let config = OAuth2Config {
+        client_id,
+        client_secret,
+        redirect_uri,
+        scopes: vec!["read".to_string()],
+    };
+    (config, refresh_token)
+}
 
 fn fmt_price(value: &Option<Decimal>) -> String {
     match value.as_ref().and_then(|d| d.to_f64()) {
@@ -66,49 +93,37 @@ fn select_strikes<'a>(
 
 #[tokio::main]
 async fn main() {
-    let mut args = std::env::args().skip(1);
-    let username = match args.next() {
-        Some(u) => u,
-        None => {
-            eprintln!("Error: Missing username argument.");
-            eprintln!("Usage: market-data <username> <password> <demo/live> <symbol>");
-            process::exit(1);
+    let args: Vec<String> = std::env::args().skip(1).collect();
+
+    let mut symbol: Option<String> = None;
+    let mut live = false;
+
+    for arg in &args {
+        match arg.as_str() {
+            "live" => live = true,
+            s if !s.starts_with("--") => symbol = Some(s.to_string()),
+            _ => {
+                eprintln!("Error: Unknown argument: {}", arg);
+                eprintln!("Usage: market-data <symbol> [live]");
+                process::exit(1);
+            }
         }
-    };
-    let password = match args.next() {
-        Some(p) => p,
-        None => {
-            eprintln!("Error: Missing password argument.");
-            eprintln!("Usage: market-data <username> <password> <demo/live> <symbol>");
-            process::exit(1);
-        }
-    };
-    let env = match args.next() {
-        Some(e) => e,
-        None => {
-            eprintln!("Error: Missing environment argument (demo/live).");
-            eprintln!("Usage: market-data <username> <password> <demo/live> <symbol>");
-            process::exit(1);
-        }
-    };
-    let symbol = match args.next() {
+    }
+
+    let symbol = match symbol {
         Some(s) => s,
         None => {
             eprintln!("Error: Missing symbol argument.");
-            eprintln!("Usage: market-data <username> <password> <demo/live> <symbol>");
+            eprintln!("Usage: market-data <symbol> [live]");
             process::exit(1);
         }
     };
 
-    let live = env.eq_ignore_ascii_case("live");
+    let (config, refresh_token) = get_oauth_config();
+    let env_name = if live { "production" } else { "demo" };
+    println!("Logging in ({} environment)...", env_name);
 
-    let login_result = if live {
-        TastyTrade::login(&username, &password, false).await
-    } else {
-        TastyTrade::login_demo(&username, &password, false).await
-    };
-
-    let tasty = match login_result {
+    let tasty = match TastyTrade::from_refresh_token(config, &refresh_token, !live).await {
         Ok(client) => client,
         Err(e) => {
             eprintln!("Login failed: {e}");

@@ -1,6 +1,7 @@
 use dxlink_rs::feed::FeedContract;
 use std::process;
 use std::time::Duration;
+use tastytrade_rs::api::oauth2::OAuth2Config;
 use tastytrade_rs::api::quote_streaming::StreamerEventData;
 use tastytrade_rs::TastyTrade;
 
@@ -18,37 +19,37 @@ async fn main() {
 
     info!("Logger initialized. Starting quote-streaming example");
 
-    let mut args = std::env::args().skip(1);
-    let username = match args.next() {
-        Some(u) => u,
-        None => {
-            error!("Error: Missing username argument.");
-            error!("Usage: quote-streaming <username> <password>");
-            process::exit(1);
-        }
-    };
-    let password = match args.next() {
-        Some(p) => p,
-        None => {
-            error!("Error: Missing password argument.");
-            error!("Usage: quote-streaming <username> <password>");
-            process::exit(1);
-        }
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let live = args.first().map(|s| s.as_str()) == Some("live");
+
+    let client_id = std::env::var("TT_OAUTH_CLIENT_ID").unwrap_or_else(|_| {
+        error!("Error: TT_OAUTH_CLIENT_ID environment variable not set");
+        error!("Usage: quote-streaming [live]");
+        error!("Required env vars: TT_OAUTH_CLIENT_ID, TT_OAUTH_CLIENT_SECRET, TT_OAUTH_REFRESH_TOKEN");
+        process::exit(1);
+    });
+    let client_secret = std::env::var("TT_OAUTH_CLIENT_SECRET").unwrap_or_else(|_| {
+        error!("Error: TT_OAUTH_CLIENT_SECRET environment variable not set");
+        process::exit(1);
+    });
+    let redirect_uri = std::env::var("TT_OAUTH_REDIRECT_URI")
+        .unwrap_or_else(|_| "http://localhost".to_string());
+    let refresh_token = std::env::var("TT_OAUTH_REFRESH_TOKEN").unwrap_or_else(|_| {
+        error!("Error: TT_OAUTH_REFRESH_TOKEN environment variable not set");
+        process::exit(1);
+    });
+
+    let config = OAuth2Config {
+        client_id,
+        client_secret,
+        redirect_uri,
+        scopes: vec!["read".to_string()],
     };
 
-    let live = match args.next() {
-        Some(p) => p == "live",
-        None => false,
-    };
+    let env_name = if live { "production" } else { "demo" };
+    info!("Attempting login ({} environment)...", env_name);
 
-    info!("Attempting to login with username: {}", username);
-    let login_result = if live {
-        TastyTrade::login(&username, &password, false).await
-    } else {
-        TastyTrade::login_demo(&username, &password, false).await
-    };
-
-    let tasty = match login_result {
+    let tasty = match TastyTrade::from_refresh_token(config, &refresh_token, !live).await {
         Ok(t) => {
             info!("Login successful");
             t
