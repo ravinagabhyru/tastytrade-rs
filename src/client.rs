@@ -157,17 +157,31 @@ impl TastyTrade {
             grant_type: "refresh_token".to_string(),
             code: None,
             refresh_token: Some(refresh_token.to_string()),
-            client_id: config.client_id.clone(),
+            client_id: None,
             client_secret: config.client_secret.clone(),
             redirect_uri: None,
         };
 
         let resp = client
             .post(format!("{}/oauth/token", base_url))
+            .header("Accept", "application/json")
+            .header("Accept-Version", "20251101")
+            .header("User-Agent", "tastytrade-rs/0.6.0")
             .json(&body)
             .send()
             .await?;
-        let token_resp: OAuth2TokenResponse = resp.json().await?;
+
+        let status = resp.status();
+        let text = resp.text().await?;
+
+        if !status.is_success() {
+            return Err(TastyError::UnexpectedResponse {
+                status: status.as_u16(),
+                body: text,
+            });
+        }
+
+        let token_resp: OAuth2TokenResponse = serde_json::from_str(&text)?;
         // Pass original refresh_token as fallback since refresh responses may omit it
         Ok(OAuth2Token::from_response(token_resp, Some(refresh_token)))
     }
@@ -182,17 +196,31 @@ impl TastyTrade {
             grant_type: "authorization_code".to_string(),
             code: Some(code.to_string()),
             refresh_token: None,
-            client_id: config.client_id.clone(),
+            client_id: Some(config.client_id.clone()),
             client_secret: config.client_secret.clone(),
             redirect_uri: Some(config.redirect_uri.clone()),
         };
 
         let resp = client
             .post(format!("{}/oauth/token", base_url))
+            .header("Accept", "application/json")
+            .header("Accept-Version", "20251101")
+            .header("User-Agent", "tastytrade-rs/0.6.0")
             .json(&body)
             .send()
             .await?;
-        let token_resp: OAuth2TokenResponse = resp.json().await?;
+
+        let status = resp.status();
+        let text = resp.text().await?;
+
+        if !status.is_success() {
+            return Err(TastyError::UnexpectedResponse {
+                status: status.as_u16(),
+                body: text,
+            });
+        }
+
+        let token_resp: OAuth2TokenResponse = serde_json::from_str(&text)?;
         // Authorization code exchange must return a refresh_token
         Ok(OAuth2Token::from_response(token_resp, None))
     }

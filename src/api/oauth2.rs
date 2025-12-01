@@ -86,7 +86,8 @@ pub struct OAuth2AuthRequest {
     pub code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub refresh_token: Option<String>,
-    pub client_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_id: Option<String>,
     pub client_secret: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub redirect_uri: Option<String>,
