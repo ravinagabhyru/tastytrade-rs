@@ -154,7 +154,7 @@ impl AsSymbol for &Symbol {
 #[serde(transparent)]
 pub struct OrderId(pub u64);
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "kebab-case")]
 pub struct LiveOrderRecord {
     pub id: OrderId,

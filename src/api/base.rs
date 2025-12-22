@@ -83,6 +83,12 @@ pub enum TastyError {
     TransactionQuery(#[from] crate::api::transaction::TransactionQueryError),
     #[error("Unexpected response (status {status}): {body}")]
     UnexpectedResponse { status: u16, body: String },
+    #[error("Stream disconnected")]
+    StreamDisconnected,
+    #[error("Stream connection closed")]
+    StreamClosed,
+    #[error("Channel send error: {0}")]
+    ChannelSend(String),
 }
 
 pub type Result<T> = std::result::Result<T, TastyError>;

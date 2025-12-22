@@ -1,8 +1,12 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
+use tokio::sync::Mutex;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
+use tracing::{debug, error, info, warn};
 
 use crate::{
     api::accounts::{Account, Balance},
@@ -15,7 +19,16 @@ use super::{order::LiveOrderRecord, position::BriefPosition};
 static WEBSOCKET_DEMO_URL: &str = "wss://streamer.cert.tastyworks.com";
 static WEBSOCKET_URL: &str = "wss://streamer.tastyworks.com";
 
-#[derive(Debug, Serialize)]
+/// Maximum reconnection attempts before giving up
+const MAX_RECONNECT_ATTEMPTS: u32 = 10;
+/// Initial backoff delay for reconnection (1 second)
+const INITIAL_BACKOFF_MS: u64 = 1000;
+/// Maximum backoff delay (30 seconds)
+const MAX_BACKOFF_MS: u64 = 30000;
+/// Heartbeat interval (30 seconds)
+const HEARTBEAT_INTERVAL_SECS: u64 = 30;
+
+#[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "kebab-case")]
 pub enum SubRequestAction {
     Heartbeat,
@@ -38,7 +51,7 @@ pub struct HandlerAction {
     value: Option<Box<dyn erased_serde::Serialize + Send + Sync>>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 #[serde(tag = "type", content = "data")]
 pub enum AccountMessage {
     Order(LiveOrderRecord),
@@ -48,7 +61,7 @@ pub enum AccountMessage {
     ExternalTransaction,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "kebab-case")]
 pub struct StatusMessage {
     pub status: String,
@@ -57,7 +70,7 @@ pub struct StatusMessage {
     pub request_id: u64,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "kebab-case")]
 pub struct ErrorMessage {
     pub status: String,
@@ -66,8 +79,23 @@ pub struct ErrorMessage {
     pub message: String,
 }
 
+/// Events emitted by the account streamer, including connection lifecycle events
+#[derive(Debug, Clone)]
+pub enum StreamEvent {
+    /// Account-related message (order, position, balance updates)
+    Account(AccountEvent),
+    /// Stream has disconnected
+    Disconnected { reason: String },
+    /// Stream is attempting to reconnect
+    Reconnecting { attempt: u32, max_attempts: u32 },
+    /// Stream has successfully reconnected
+    Reconnected,
+    /// Stream has been closed (either by user or after max reconnection attempts)
+    Closed { reason: String },
+}
+
 //#[allow(clippy::large_enum_variant)]
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum AccountEvent {
     ErrorMessage(ErrorMessage),
@@ -75,80 +103,363 @@ pub enum AccountEvent {
     AccountMessage(Box<AccountMessage>),
 }
 
+/// Configuration for the account streamer
+#[derive(Debug, Clone)]
+pub struct AccountStreamerConfig {
+    /// Whether to automatically reconnect on disconnect
+    pub auto_reconnect: bool,
+    /// Maximum number of reconnection attempts (0 = unlimited)
+    pub max_reconnect_attempts: u32,
+    /// Initial backoff delay in milliseconds
+    pub initial_backoff_ms: u64,
+    /// Maximum backoff delay in milliseconds
+    pub max_backoff_ms: u64,
+}
+
+impl Default for AccountStreamerConfig {
+    fn default() -> Self {
+        Self {
+            auto_reconnect: true,
+            max_reconnect_attempts: MAX_RECONNECT_ATTEMPTS,
+            initial_backoff_ms: INITIAL_BACKOFF_MS,
+            max_backoff_ms: MAX_BACKOFF_MS,
+        }
+    }
+}
+
+/// Internal state for managing connection and reconnection
+#[derive(Debug)]
+struct StreamerState {
+    /// Auth token for the connection
+    token: String,
+    /// Whether this is a demo/sandbox connection
+    is_demo: bool,
+    /// Accounts to re-subscribe to on reconnect
+    subscribed_accounts: Vec<String>,
+}
+
 #[derive(Debug)]
 pub struct AccountStreamer {
-    pub event_receiver: flume::Receiver<AccountEvent>,
+    /// Receiver for stream events (accounts data + lifecycle events)
+    pub event_receiver: flume::Receiver<StreamEvent>,
+    /// Sender for actions to the streamer
     pub action_sender: flume::Sender<HandlerAction>,
+    /// Flag to signal shutdown
+    shutdown: Arc<AtomicBool>,
+    /// Internal state protected by mutex
+    state: Arc<Mutex<StreamerState>>,
 }
 
 impl AccountStreamer {
+    /// Connect to the TastyTrade account streaming WebSocket with default configuration
     pub async fn connect(tasty: &TastyTrade) -> Result<AccountStreamer> {
+        Self::connect_with_config(tasty, AccountStreamerConfig::default()).await
+    }
+
+    /// Connect to the TastyTrade account streaming WebSocket with custom configuration
+    pub async fn connect_with_config(
+        tasty: &TastyTrade,
+        config: AccountStreamerConfig,
+    ) -> Result<AccountStreamer> {
         // Capture the current auth header value for websocket auth
         let token = {
             // best-effort snapshot; websocket does not auto-refresh this value
             // if the access token expires, the streaming connection may need reestablishing
             tasty.auth_state.read().await.auth_header()
         };
+
+        let is_demo = tasty.demo;
         let (event_sender, event_receiver) = flume::unbounded();
         let (action_sender, action_receiver): (
             flume::Sender<HandlerAction>,
             flume::Receiver<HandlerAction>,
         ) = flume::unbounded();
 
-        let url = if tasty.demo {
-            url::Url::parse(WEBSOCKET_DEMO_URL).unwrap()
-        } else {
-            url::Url::parse(WEBSOCKET_URL).unwrap()
-        };
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let state = Arc::new(Mutex::new(StreamerState {
+            token: token.clone(),
+            is_demo,
+            subscribed_accounts: Vec::new(),
+        }));
 
-        let (ws_stream, _response) = connect_async(url).await?;
-        // let hello = ws_stream.try_next().await?;
-        // if let Some(msg) = hello {
-        //     match serde_json::from_slice(&msg.into_data())? {
-        //         SubMessage::ErrorMessage(_) => return Err(ConnectionClosed.into()), // Perhaps retry on our own?
-        //         SubMessage::StatusMessage(_) => {}
-        //         _ => unreachable!(),
-        //     }
-        // } else {
-        //     return Err(ConnectionClosed.into());
-        // }
-
-        let (mut write, mut read) = ws_stream.split();
-
+        // Spawn the main connection manager task
+        let shutdown_clone = shutdown.clone();
+        let state_clone = state.clone();
+        let action_sender_clone = action_sender.clone();
         tokio::spawn(async move {
-            while let Some(message) = read.next().await {
-                let data = message.unwrap().into_data();
-                //println!("{:?}", String::from_utf8_lossy(&data));
-                let data: AccountEvent = serde_json::from_slice(&data).unwrap();
-                event_sender.send_async(data).await.unwrap();
-            }
+            Self::connection_manager(
+                state_clone,
+                config,
+                event_sender,
+                action_receiver,
+                action_sender_clone,
+                shutdown_clone,
+            )
+            .await;
         });
 
-        let token_clone = token.clone();
-        tokio::spawn(async move {
+        Ok(Self {
+            event_receiver,
+            action_sender,
+            shutdown,
+            state,
+        })
+    }
+
+    /// Main connection manager that handles connection lifecycle and reconnection
+    async fn connection_manager(
+        state: Arc<Mutex<StreamerState>>,
+        config: AccountStreamerConfig,
+        event_sender: flume::Sender<StreamEvent>,
+        action_receiver: flume::Receiver<HandlerAction>,
+        action_sender: flume::Sender<HandlerAction>,
+        shutdown: Arc<AtomicBool>,
+    ) {
+        let mut reconnect_attempt = 0u32;
+
+        loop {
+            if shutdown.load(Ordering::SeqCst) {
+                info!("AccountStreamer shutdown requested");
+                let _ = event_sender.send_async(StreamEvent::Closed {
+                    reason: "Shutdown requested".to_string(),
+                }).await;
+                break;
+            }
+
+            // Attempt to connect
+            let (is_demo, token) = {
+                let s = state.lock().await;
+                (s.is_demo, s.token.clone())
+            };
+
+            match Self::establish_connection(
+                is_demo,
+                &token,
+                event_sender.clone(),
+                action_receiver.clone(),
+                action_sender.clone(),
+                shutdown.clone(),
+            )
+            .await
+            {
+                Ok(disconnect_reason) => {
+                    if shutdown.load(Ordering::SeqCst) {
+                        info!("AccountStreamer closed after shutdown");
+                        break;
+                    }
+
+                    // Connection was established but then lost
+                    warn!("AccountStreamer disconnected: {}", disconnect_reason);
+                    let _ = event_sender.send_async(StreamEvent::Disconnected {
+                        reason: disconnect_reason,
+                    }).await;
+
+                    if !config.auto_reconnect {
+                        let _ = event_sender.send_async(StreamEvent::Closed {
+                            reason: "Auto-reconnect disabled".to_string(),
+                        }).await;
+                        break;
+                    }
+
+                    reconnect_attempt += 1;
+                    if config.max_reconnect_attempts > 0
+                        && reconnect_attempt > config.max_reconnect_attempts
+                    {
+                        error!(
+                            "Max reconnection attempts ({}) reached, giving up",
+                            config.max_reconnect_attempts
+                        );
+                        let _ = event_sender.send_async(StreamEvent::Closed {
+                            reason: format!(
+                                "Max reconnection attempts ({}) reached",
+                                config.max_reconnect_attempts
+                            ),
+                        }).await;
+                        break;
+                    }
+
+                    // Calculate backoff with exponential increase
+                    let backoff_ms = std::cmp::min(
+                        config.initial_backoff_ms * 2u64.pow(reconnect_attempt - 1),
+                        config.max_backoff_ms,
+                    );
+
+                    info!(
+                        "Reconnecting in {}ms (attempt {}/{})",
+                        backoff_ms,
+                        reconnect_attempt,
+                        if config.max_reconnect_attempts > 0 {
+                            config.max_reconnect_attempts.to_string()
+                        } else {
+                            "∞".to_string()
+                        }
+                    );
+
+                    let _ = event_sender.send_async(StreamEvent::Reconnecting {
+                        attempt: reconnect_attempt,
+                        max_attempts: config.max_reconnect_attempts,
+                    }).await;
+
+                    tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
+                }
+                Err(e) => {
+                    error!("Failed to establish connection: {}", e);
+
+                    if !config.auto_reconnect {
+                        let _ = event_sender.send_async(StreamEvent::Closed {
+                            reason: format!("Connection failed: {}", e),
+                        }).await;
+                        break;
+                    }
+
+                    reconnect_attempt += 1;
+                    if config.max_reconnect_attempts > 0
+                        && reconnect_attempt > config.max_reconnect_attempts
+                    {
+                        let _ = event_sender.send_async(StreamEvent::Closed {
+                            reason: format!(
+                                "Max reconnection attempts reached after error: {}",
+                                e
+                            ),
+                        }).await;
+                        break;
+                    }
+
+                    let backoff_ms = std::cmp::min(
+                        config.initial_backoff_ms * 2u64.pow(reconnect_attempt - 1),
+                        config.max_backoff_ms,
+                    );
+
+                    let _ = event_sender.send_async(StreamEvent::Reconnecting {
+                        attempt: reconnect_attempt,
+                        max_attempts: config.max_reconnect_attempts,
+                    }).await;
+
+                    tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
+                }
+            }
+        }
+    }
+
+    /// Establish a WebSocket connection and run the event loop
+    /// Returns the reason for disconnection if it occurs
+    async fn establish_connection(
+        is_demo: bool,
+        token: &str,
+        event_sender: flume::Sender<StreamEvent>,
+        action_receiver: flume::Receiver<HandlerAction>,
+        action_sender: flume::Sender<HandlerAction>,
+        shutdown: Arc<AtomicBool>,
+    ) -> Result<String> {
+        let url = if is_demo {
+            url::Url::parse(WEBSOCKET_DEMO_URL).expect("Static WebSocket URL should be valid")
+        } else {
+            url::Url::parse(WEBSOCKET_URL).expect("Static WebSocket URL should be valid")
+        };
+
+        info!("Connecting to WebSocket: {}", url);
+        let (ws_stream, _response) = connect_async(url).await?;
+        info!("WebSocket connection established");
+
+        // Notify that we've reconnected (or connected initially)
+        let _ = event_sender.send_async(StreamEvent::Reconnected).await;
+
+        let (mut write, mut read) = ws_stream.split();
+        let (disconnect_sender, disconnect_receiver) = flume::bounded::<String>(1);
+
+        // Task for reading from WebSocket
+        let event_sender_clone = event_sender.clone();
+        let disconnect_sender_read = disconnect_sender.clone();
+        let shutdown_read = shutdown.clone();
+        let read_task = tokio::spawn(async move {
+            while let Some(message_result) = read.next().await {
+                if shutdown_read.load(Ordering::SeqCst) {
+                    debug!("Read task: shutdown requested");
+                    break;
+                }
+
+                match message_result {
+                    Ok(message) => {
+                        let data = message.into_data();
+                        match serde_json::from_slice::<AccountEvent>(&data) {
+                            Ok(event) => {
+                                if event_sender_clone
+                                    .send_async(StreamEvent::Account(event))
+                                    .await
+                                    .is_err()
+                                {
+                                    debug!("Event receiver dropped, stopping read task");
+                                    break;
+                                }
+                            }
+                            Err(e) => {
+                                warn!(
+                                    "Failed to parse WebSocket message: {} - raw: {}",
+                                    e,
+                                    String::from_utf8_lossy(&data)
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!("WebSocket read error: {}", e);
+                        let _ = disconnect_sender_read
+                            .send_async(format!("WebSocket read error: {}", e))
+                            .await;
+                        break;
+                    }
+                }
+            }
+            let _ = disconnect_sender_read
+                .send_async("WebSocket connection closed".to_string())
+                .await;
+        });
+
+        // Task for writing to WebSocket
+        let token_clone = token.to_string();
+        let disconnect_sender_write = disconnect_sender.clone();
+        let shutdown_write = shutdown.clone();
+        let write_task = tokio::spawn(async move {
             while let Ok(action) = action_receiver.recv_async().await {
+                if shutdown_write.load(Ordering::SeqCst) {
+                    debug!("Write task: shutdown requested");
+                    break;
+                }
+
                 let message = SubRequest {
                     auth_token: token_clone.clone(),
                     action: action.action,
                     value: action.value,
                 };
-                let message = serde_json::to_string(&message).unwrap();
 
-                //println!("{message:?}");
-
-                let message = Message::Text(message);
-
-                if write.send(message).await.is_err() {
-                    // TODO: send message informing user of disconnection
-                    break;
+                match serde_json::to_string(&message) {
+                    Ok(json) => {
+                        let ws_message = Message::Text(json);
+                        if let Err(e) = write.send(ws_message).await {
+                            error!("WebSocket write error: {}", e);
+                            let _ = disconnect_sender_write
+                                .send_async(format!("WebSocket write error: {}", e))
+                                .await;
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        warn!("Failed to serialize message: {}", e);
+                    }
                 }
             }
         });
 
+        // Heartbeat task
         let sender_clone = action_sender.clone();
-        tokio::spawn(async move {
+        let shutdown_heartbeat = shutdown.clone();
+        let heartbeat_task = tokio::spawn(async move {
             loop {
-                tokio::time::sleep(Duration::from_secs(30)).await;
+                tokio::time::sleep(Duration::from_secs(HEARTBEAT_INTERVAL_SECS)).await;
+                if shutdown_heartbeat.load(Ordering::SeqCst) {
+                    debug!("Heartbeat task: shutdown requested");
+                    break;
+                }
                 if sender_clone
                     .send_async(HandlerAction {
                         action: SubRequestAction::Heartbeat,
@@ -157,50 +468,124 @@ impl AccountStreamer {
                     .await
                     .is_err()
                 {
+                    debug!("Action sender dropped, stopping heartbeat task");
                     break;
                 }
             }
         });
 
-        Ok(Self {
-            event_receiver,
-            action_sender,
-        })
+        // Wait for disconnect signal
+        let reason = disconnect_receiver
+            .recv_async()
+            .await
+            .unwrap_or_else(|_| "Unknown disconnection reason".to_string());
+
+        // Clean up tasks
+        read_task.abort();
+        write_task.abort();
+        heartbeat_task.abort();
+
+        Ok(reason)
     }
 
+    /// Subscribe to account events for a specific account
     pub async fn subscribe_to_account<'a>(&self, account: &'a Account<'a>) {
+        let account_number = account.inner.account.account_number.0.clone();
+
+        // Store the account for re-subscription on reconnect
+        {
+            let mut state = self.state.lock().await;
+            if !state.subscribed_accounts.contains(&account_number) {
+                state.subscribed_accounts.push(account_number.clone());
+            }
+        }
+
+        self.send(SubRequestAction::Connect, Some(vec![account_number]))
+            .await;
+    }
+
+    /// Subscribe to account events by account number
+    pub async fn subscribe_to_account_number(&self, account_number: &str) {
+        // Store the account for re-subscription on reconnect
+        {
+            let mut state = self.state.lock().await;
+            if !state.subscribed_accounts.contains(&account_number.to_string()) {
+                state.subscribed_accounts.push(account_number.to_string());
+            }
+        }
+
         self.send(
             SubRequestAction::Connect,
-            Some(vec![account.inner.account.account_number.clone()]),
+            Some(vec![account_number.to_string()]),
         )
         .await;
     }
 
+    /// Send an action to the streamer
     pub async fn send<T: Serialize + Send + Sync + 'static>(
         &self,
         action: SubRequestAction,
         value: Option<T>,
     ) {
-        self.action_sender
+        if let Err(e) = self
+            .action_sender
             .send_async(HandlerAction {
-                action,
+                action: action.clone(),
                 value: value
                     .map(|inner| Box::new(inner) as Box<dyn erased_serde::Serialize + Send + Sync>),
             })
             .await
-            .unwrap();
+        {
+            warn!("Failed to send action {:?}: {}", action, e);
+        }
     }
 
-    // pub async fn close(&self) {}
+    /// Close the streamer connection gracefully
+    pub async fn close(&self) {
+        info!("Closing AccountStreamer");
+        self.shutdown.store(true, Ordering::SeqCst);
 
-    pub async fn get_event(&self) -> std::result::Result<AccountEvent, flume::RecvError> {
+        // Send a dummy action to wake up the write task if it's blocked
+        let _ = self
+            .action_sender
+            .send_async(HandlerAction {
+                action: SubRequestAction::Heartbeat,
+                value: None,
+            })
+            .await;
+    }
+
+    /// Check if the streamer has been closed
+    pub fn is_closed(&self) -> bool {
+        self.shutdown.load(Ordering::SeqCst)
+    }
+
+    /// Get the next event from the streamer
+    pub async fn get_event(&self) -> std::result::Result<StreamEvent, flume::RecvError> {
         self.event_receiver.recv_async().await
+    }
+
+    /// Try to get an event without blocking
+    pub fn try_get_event(&self) -> std::result::Result<StreamEvent, flume::TryRecvError> {
+        self.event_receiver.try_recv()
+    }
+
+    /// Get the list of currently subscribed accounts
+    pub async fn subscribed_accounts(&self) -> Vec<String> {
+        self.state.lock().await.subscribed_accounts.clone()
     }
 }
 
 impl TastyTrade {
     pub async fn create_account_streamer(&self) -> Result<AccountStreamer> {
         AccountStreamer::connect(self).await
+    }
+
+    pub async fn create_account_streamer_with_config(
+        &self,
+        config: AccountStreamerConfig,
+    ) -> Result<AccountStreamer> {
+        AccountStreamer::connect_with_config(self, config).await
     }
 }
 
@@ -537,6 +922,74 @@ mod tests {
 
         let event: AccountEvent = serde_json::from_value(account_json).unwrap();
         assert!(matches!(event, AccountEvent::AccountMessage(_)));
+    }
+
+    #[test]
+    fn test_streamer_config_default() {
+        let config = AccountStreamerConfig::default();
+        assert!(config.auto_reconnect);
+        assert_eq!(config.max_reconnect_attempts, MAX_RECONNECT_ATTEMPTS);
+        assert_eq!(config.initial_backoff_ms, INITIAL_BACKOFF_MS);
+        assert_eq!(config.max_backoff_ms, MAX_BACKOFF_MS);
+    }
+
+    #[test]
+    fn test_streamer_config_custom() {
+        let config = AccountStreamerConfig {
+            auto_reconnect: false,
+            max_reconnect_attempts: 5,
+            initial_backoff_ms: 500,
+            max_backoff_ms: 10000,
+        };
+        assert!(!config.auto_reconnect);
+        assert_eq!(config.max_reconnect_attempts, 5);
+        assert_eq!(config.initial_backoff_ms, 500);
+        assert_eq!(config.max_backoff_ms, 10000);
+    }
+
+    #[test]
+    fn test_stream_event_variants() {
+        // Test Disconnected variant
+        let event = StreamEvent::Disconnected {
+            reason: "Connection lost".to_string(),
+        };
+        match event {
+            StreamEvent::Disconnected { reason } => {
+                assert_eq!(reason, "Connection lost");
+            }
+            _ => panic!("Expected Disconnected variant"),
+        }
+
+        // Test Reconnecting variant
+        let event = StreamEvent::Reconnecting {
+            attempt: 3,
+            max_attempts: 10,
+        };
+        match event {
+            StreamEvent::Reconnecting {
+                attempt,
+                max_attempts,
+            } => {
+                assert_eq!(attempt, 3);
+                assert_eq!(max_attempts, 10);
+            }
+            _ => panic!("Expected Reconnecting variant"),
+        }
+
+        // Test Reconnected variant
+        let event = StreamEvent::Reconnected;
+        assert!(matches!(event, StreamEvent::Reconnected));
+
+        // Test Closed variant
+        let event = StreamEvent::Closed {
+            reason: "Max retries reached".to_string(),
+        };
+        match event {
+            StreamEvent::Closed { reason } => {
+                assert_eq!(reason, "Max retries reached");
+            }
+            _ => panic!("Expected Closed variant"),
+        }
     }
 
     // Note: We can't easily test the full AccountStreamer functionality without

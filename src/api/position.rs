@@ -48,7 +48,7 @@ pub struct FullPosition {
     pub created_at: String,
     pub updated_at: String,
 }
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "kebab-case")]
 pub struct BriefPosition {
     pub account_number: AccountNumber,

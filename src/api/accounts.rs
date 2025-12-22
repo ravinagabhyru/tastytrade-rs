@@ -230,7 +230,7 @@ impl<'t> Account<'t> {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "kebab-case")]
 pub struct Balance {
     pub account_number: AccountNumber,
