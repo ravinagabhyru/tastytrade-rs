@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -28,6 +28,30 @@ const MAX_BACKOFF_MS: u64 = 30000;
 /// Heartbeat interval (30 seconds)
 const HEARTBEAT_INTERVAL_SECS: u64 = 30;
 
+/// Mask account number for logging (shows first 3 and last 2 chars)
+fn mask_account(account: &str) -> String {
+    if account.len() <= 5 {
+        "***".to_string()
+    } else {
+        format!("{}***{}", &account[..3], &account[account.len() - 2..])
+    }
+}
+
+/// Mask sensitive data in raw JSON strings (account numbers, session IDs, tokens)
+fn mask_sensitive_data(data: &str) -> String {
+    use regex::Regex;
+    // Match account-number field values (alphanumeric, typically 8 chars like "5WY40297")
+    let account_re = Regex::new(r#""account-number"\s*:\s*"([A-Z0-9]{6,})""#).unwrap();
+    let result = account_re.replace_all(data, |caps: &regex::Captures| {
+        let account = &caps[1];
+        format!(r#""account-number":"{}""#, mask_account(account))
+    });
+    // Also mask web-socket-session-id
+    let session_re = Regex::new(r#""web-socket-session-id"\s*:\s*"([^"]+)""#).unwrap();
+    let result = session_re.replace_all(&result, r#""web-socket-session-id":"***""#);
+    result.to_string()
+}
+
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "kebab-case")]
 pub enum SubRequestAction {
@@ -43,12 +67,37 @@ pub enum SubRequestAction {
 struct SubRequest<T> {
     auth_token: String,
     action: SubRequestAction,
+    #[serde(skip_serializing_if = "Option::is_none")]
     value: Option<T>,
+    request_id: u64,
+    source: &'static str,
 }
+
+/// Source identifier for API requests
+const SOURCE: &str = "tastytrade-rs/0.6.0";
 
 pub struct HandlerAction {
     action: SubRequestAction,
     value: Option<Box<dyn erased_serde::Serialize + Send + Sync>>,
+    request_id: u64,
+}
+
+/// Year-to-date gain summary for an underlying symbol
+#[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "kebab-case")]
+pub struct UnderlyingYearGainSummary {
+    pub account_number: String,
+    pub symbol: String,
+    pub instrument_type: String,
+    pub year: String,
+    pub commissions: String,
+    pub commissions_effect: String,
+    pub fees: String,
+    pub fees_effect: String,
+    pub realized_lot_gain: String,
+    pub realized_lot_gain_effect: String,
+    pub yearly_realized_gain: String,
+    pub yearly_realized_gain_effect: String,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -57,6 +106,7 @@ pub enum AccountMessage {
     Order(LiveOrderRecord),
     AccountBalance(Box<Balance>),
     CurrentPosition(Box<BriefPosition>),
+    UnderlyingYearGainSummary(UnderlyingYearGainSummary),
     OrderChain,
     ExternalTransaction,
 }
@@ -159,6 +209,8 @@ pub struct AccountStreamer {
     shutdown: Arc<AtomicBool>,
     /// Internal state protected by mutex
     state: Arc<Mutex<StreamerState>>,
+    /// Counter for generating unique request IDs
+    request_id_counter: Arc<AtomicU64>,
 }
 
 impl AccountStreamer {
@@ -214,6 +266,7 @@ impl AccountStreamer {
             action_sender,
             shutdown,
             state,
+            request_id_counter: Arc::new(AtomicU64::new(1)),
         })
     }
 
@@ -383,6 +436,7 @@ impl AccountStreamer {
         let disconnect_sender_read = disconnect_sender.clone();
         let shutdown_read = shutdown.clone();
         let read_task = tokio::spawn(async move {
+            info!("AccountStreamer: Read task started, waiting for WebSocket messages");
             while let Some(message_result) = read.next().await {
                 if shutdown_read.load(Ordering::SeqCst) {
                     debug!("Read task: shutdown requested");
@@ -392,8 +446,47 @@ impl AccountStreamer {
                 match message_result {
                     Ok(message) => {
                         let data = message.into_data();
+                        // Log raw message receipt (truncate and mask sensitive data)
+                        let raw_preview = String::from_utf8_lossy(&data);
+                        let preview = if raw_preview.len() > 200 {
+                            format!("{}...", &raw_preview[..200])
+                        } else {
+                            raw_preview.to_string()
+                        };
+                        // Mask account numbers in raw preview (pattern: digits followed by letters or 8+ char alphanumeric)
+                        let masked_preview = mask_sensitive_data(&preview);
+                        info!("AccountStreamer: Raw WebSocket message received ({} bytes): {}", data.len(), masked_preview);
+
                         match serde_json::from_slice::<AccountEvent>(&data) {
                             Ok(event) => {
+                                // Log the event type for debugging
+                                match &event {
+                                    AccountEvent::AccountMessage(msg) => {
+                                        debug!(
+                                            "AccountStreamer: Received AccountMessage: {:?}",
+                                            std::mem::discriminant(msg.as_ref())
+                                        );
+                                    }
+                                    AccountEvent::StatusMessage(status) => {
+                                        info!(
+                                            "AccountStreamer: Received StatusMessage: action={}, status={}",
+                                            status.action, status.status
+                                        );
+                                    }
+                                    AccountEvent::HeartbeatResponse(hb) => {
+                                        info!(
+                                            "AccountStreamer: Received HeartbeatResponse: action={}, status={}, seq={}",
+                                            hb.action, hb.status, hb.ws_sequence
+                                        );
+                                    }
+                                    AccountEvent::ErrorMessage(err) => {
+                                        warn!(
+                                            "AccountStreamer: Received ErrorMessage: action={}, message={}",
+                                            err.action, err.message
+                                        );
+                                    }
+                                }
+
                                 if event_sender_clone
                                     .send_async(StreamEvent::Account(event))
                                     .await
@@ -431,7 +524,12 @@ impl AccountStreamer {
         let disconnect_sender_write = disconnect_sender.clone();
         let shutdown_write = shutdown.clone();
         let write_task = tokio::spawn(async move {
+            info!("AccountStreamer: Write task started, waiting for actions");
             while let Ok(action) = action_receiver.recv_async().await {
+                info!(
+                    "AccountStreamer: Write task received {:?} action from channel",
+                    action.action
+                );
                 if shutdown_write.load(Ordering::SeqCst) {
                     debug!("Write task: shutdown requested");
                     break;
@@ -441,10 +539,18 @@ impl AccountStreamer {
                     auth_token: token_clone.clone(),
                     action: action.action,
                     value: action.value,
+                    request_id: action.request_id,
+                    source: SOURCE,
                 };
 
                 match serde_json::to_string(&message) {
                     Ok(json) => {
+                        // Mask auth token in the logged JSON
+                        let masked_json = json.replace(&token_clone, "***TOKEN***");
+                        info!(
+                            "AccountStreamer: Sending {:?} action over WebSocket: {}",
+                            message.action, masked_json
+                        );
                         let ws_message = Message::Text(json);
                         if let Err(e) = write.send(ws_message).await {
                             error!("WebSocket write error: {}", e);
@@ -475,6 +581,7 @@ impl AccountStreamer {
                     .send_async(HandlerAction {
                         action: SubRequestAction::Heartbeat,
                         value: None,
+                        request_id: 0, // Heartbeats use ws-sequence, not request-id
                     })
                     .await
                     .is_err()
@@ -517,6 +624,11 @@ impl AccountStreamer {
 
     /// Subscribe to account events by account number
     pub async fn subscribe_to_account_number(&self, account_number: &str) {
+        info!(
+            "AccountStreamer: Requesting subscription for account {}",
+            mask_account(account_number)
+        );
+
         // Store the account for re-subscription on reconnect
         {
             let mut state = self.state.lock().await;
@@ -538,12 +650,16 @@ impl AccountStreamer {
         action: SubRequestAction,
         value: Option<T>,
     ) {
+        // Generate a unique request ID for this action
+        let request_id = self.request_id_counter.fetch_add(1, Ordering::SeqCst);
+
         if let Err(e) = self
             .action_sender
             .send_async(HandlerAction {
                 action: action.clone(),
                 value: value
                     .map(|inner| Box::new(inner) as Box<dyn erased_serde::Serialize + Send + Sync>),
+                request_id,
             })
             .await
         {
@@ -562,6 +678,7 @@ impl AccountStreamer {
             .send_async(HandlerAction {
                 action: SubRequestAction::Heartbeat,
                 value: None,
+                request_id: 0,
             })
             .await;
     }
@@ -639,6 +756,8 @@ mod tests {
             auth_token: "test_token".to_string(),
             action: SubRequestAction::Connect,
             value: Some("test_value"),
+            request_id: 1,
+            source: SOURCE,
         };
 
         let json = serde_json::to_string(&request).unwrap();
@@ -648,6 +767,8 @@ mod tests {
         assert_eq!(parsed["auth-token"], "test_token");
         assert_eq!(parsed["action"], "connect"); // Action is also kebab-case
         assert_eq!(parsed["value"], "test_value");
+        assert_eq!(parsed["request-id"], 1);
+        assert_eq!(parsed["source"], SOURCE);
     }
 
     #[test]
@@ -656,6 +777,8 @@ mod tests {
             auth_token: "heartbeat_token".to_string(),
             action: SubRequestAction::Heartbeat,
             value: None,
+            request_id: 0,
+            source: SOURCE,
         };
 
         let json = serde_json::to_string(&request).unwrap();
@@ -663,7 +786,9 @@ mod tests {
 
         assert_eq!(parsed["auth-token"], "heartbeat_token");
         assert_eq!(parsed["action"], "heartbeat"); // Action is kebab-case
-        assert!(parsed["value"].is_null());
+        assert!(parsed.get("value").is_none()); // value should be skipped when None
+        assert_eq!(parsed["request-id"], 0);
+        assert_eq!(parsed["source"], SOURCE);
     }
 
     #[test]
