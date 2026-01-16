@@ -6,7 +6,7 @@ pub mod client;
 pub use api::accounts;
 pub use api::account_streaming::{
     AccountEvent, AccountMessage, AccountStreamer, AccountStreamerConfig, ErrorMessage,
-    StatusMessage, StreamEvent, SubRequestAction,
+    HeartbeatResponse, StatusMessage, StreamEvent, SubRequestAction,
 };
 pub use api::base::Result;
 pub use api::market_data::{MarketDataItem, MarketDataParam, MarketDataRequest};

@@ -39,7 +39,7 @@ tokio-tungstenite = { version = "0.19.0", features = ["native-tls"] }
 tokio = { version = "1.28.1", features = ["full"] }
 futures-util = "0.3.28"
 erased-serde = "0.3.25"
-dxlink-rs = { git = "https://github.com/ravinagabhyru/dxlink-rs.git", rev = "14654c6220583c9950daf6ed1025c0c4a46fee60" }
+dxlink-rs = { git = "https://github.com/ravinagabhyru/dxlink-rs.git", rev = "6f8d631af3511be302edef74ae94ce067da399b0" }
 chrono = { version = "0.4.31", features = ["serde"] }
 serde_with = "3.4.0"
 tracing = "0.1"

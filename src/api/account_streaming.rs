@@ -79,6 +79,16 @@ pub struct ErrorMessage {
     pub message: String,
 }
 
+/// Response to heartbeat requests (uses ws-sequence instead of request-id)
+#[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "kebab-case")]
+pub struct HeartbeatResponse {
+    pub status: String,
+    pub action: String,
+    pub web_socket_session_id: String,
+    pub ws_sequence: u64,
+}
+
 /// Events emitted by the account streamer, including connection lifecycle events
 #[derive(Debug, Clone)]
 pub enum StreamEvent {
@@ -99,6 +109,7 @@ pub enum StreamEvent {
 #[serde(untagged)]
 pub enum AccountEvent {
     ErrorMessage(ErrorMessage),
+    HeartbeatResponse(HeartbeatResponse),
     StatusMessage(StatusMessage),
     AccountMessage(Box<AccountMessage>),
 }
@@ -922,6 +933,48 @@ mod tests {
 
         let event: AccountEvent = serde_json::from_value(account_json).unwrap();
         assert!(matches!(event, AccountEvent::AccountMessage(_)));
+    }
+
+    #[test]
+    fn test_heartbeat_response_deserialization() {
+        // Test heartbeat response (uses ws-sequence instead of request-id)
+        let json = json!({
+            "web-socket-session-id": "8fb26a40-92be-94ac-bdb3-b1c5b1e38ede",
+            "action": "heartbeat",
+            "status": "ok",
+            "ws-sequence": 3
+        });
+
+        let event: AccountEvent = serde_json::from_value(json).unwrap();
+        match event {
+            AccountEvent::HeartbeatResponse(heartbeat) => {
+                assert_eq!(heartbeat.action, "heartbeat");
+                assert_eq!(heartbeat.status, "ok");
+                assert_eq!(heartbeat.ws_sequence, 3);
+                assert_eq!(
+                    heartbeat.web_socket_session_id,
+                    "8fb26a40-92be-94ac-bdb3-b1c5b1e38ede"
+                );
+            }
+            _ => panic!("Expected HeartbeatResponse variant"),
+        }
+    }
+
+    #[test]
+    fn test_heartbeat_response_direct_deserialization() {
+        // Test direct deserialization of HeartbeatResponse struct
+        let json = json!({
+            "status": "ok",
+            "action": "heartbeat",
+            "web-socket-session-id": "session123",
+            "ws-sequence": 42
+        });
+
+        let heartbeat: HeartbeatResponse = serde_json::from_value(json).unwrap();
+        assert_eq!(heartbeat.status, "ok");
+        assert_eq!(heartbeat.action, "heartbeat");
+        assert_eq!(heartbeat.web_socket_session_id, "session123");
+        assert_eq!(heartbeat.ws_sequence, 42);
     }
 
     #[test]

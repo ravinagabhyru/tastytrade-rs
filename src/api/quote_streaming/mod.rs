@@ -10,7 +10,7 @@
 //! ```rust,no_run
 //! use tastytrade_rs::TastyTrade;
 //! use tastytrade_rs::api::oauth2::OAuth2Config;
-//! use dxlink_rs::feed::FeedContract;
+//! use tastytrade_rs::api::quote_streaming::FeedContract;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -43,6 +43,7 @@ mod error;
 mod types;
 
 pub use dxlink::DxLinkQuoteStreamer;
+pub use dxlink_rs::feed::FeedContract;
 pub use error::QuoteStreamingError;
 pub use types::{
     ApiQuoteTokens, ApiQuoteTokensData, DxFeedSymbol, GreeksData, QuoteData, QuoteStreamerTokens,
