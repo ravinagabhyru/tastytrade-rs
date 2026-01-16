@@ -74,7 +74,7 @@ struct SubRequest<T> {
 }
 
 /// Source identifier for API requests
-const SOURCE: &str = "tastytrade-rs/0.6.0";
+const SOURCE: &str = "tastytrade-rs/0.6.1";
 
 pub struct HandlerAction {
     action: SubRequestAction,
