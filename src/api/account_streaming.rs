@@ -422,7 +422,7 @@ impl AccountStreamer {
         };
 
         info!("Connecting to WebSocket: {}", url);
-        let (ws_stream, _response) = connect_async(url).await?;
+        let (ws_stream, _response) = connect_async(url.as_str()).await?;
         info!("WebSocket connection established");
 
         // Notify that we've reconnected (or connected initially)
@@ -551,7 +551,7 @@ impl AccountStreamer {
                             "AccountStreamer: Sending {:?} action over WebSocket: {}",
                             message.action, masked_json
                         );
-                        let ws_message = Message::Text(json);
+                        let ws_message = Message::Text(json.into());
                         if let Err(e) = write.send(ws_message).await {
                             error!("WebSocket write error: {}", e);
                             let _ = disconnect_sender_write
