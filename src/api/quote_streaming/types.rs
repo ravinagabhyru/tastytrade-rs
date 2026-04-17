@@ -48,6 +48,8 @@ pub struct QuoteData {
     pub ask_size: Option<f64>,
     /// Timestamp of the quote event
     pub event_time: Option<u64>,
+    /// Cumulative day volume (populated for Trade events, None for Quote events)
+    pub day_volume: Option<f64>,
 }
 
 /// Represents Greeks data for an option

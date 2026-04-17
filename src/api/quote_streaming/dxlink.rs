@@ -410,6 +410,7 @@ impl DxLinkQuoteStreamer {
                                 bid_size: quote_event.bid_size.as_ref().map(|jd| jd.to_f64()),
                                 ask_size: quote_event.ask_size.as_ref().map(|jd| jd.to_f64()),
                                 event_time: quote_event.event_time,
+                                day_volume: None,
                             };
                             return Ok(Some(StreamerEvent {
                                 event_type: "Quote".to_string(),
@@ -421,8 +422,7 @@ impl DxLinkQuoteStreamer {
                                 "Received trade event for symbol: {} on channel {}",
                                 trade_event.event_symbol, channel_id
                             );
-                            // For now, we convert trade events to the same QuoteData structure
-                            // In a real implementation, you might want to create a more specific type
+                            // We convert trade events to QuoteData, carrying day_volume through
                             let quote_data = QuoteData {
                                 symbol: trade_event.event_symbol.clone(),
                                 bid_price: None,
@@ -430,6 +430,7 @@ impl DxLinkQuoteStreamer {
                                 bid_size: None,
                                 ask_size: trade_event.size.as_ref().map(|jd| jd.to_f64()),
                                 event_time: trade_event.event_time,
+                                day_volume: trade_event.day_volume.as_ref().map(|jd| jd.to_f64()),
                             };
                             return Ok(Some(StreamerEvent {
                                 event_type: "Trade".to_string(),
